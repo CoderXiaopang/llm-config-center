@@ -25,12 +25,15 @@ def get_llm_config(
     query = urllib.parse.urlencode({"env": env})
     url = f"{server_url.rstrip('/')}/api/v1/runtime/configs/{urllib.parse.quote(alias)}?{query}"
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {access_key}"})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with opener.open(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"读取配置失败：HTTP {exc.code}，响应：{body}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"读取配置失败：无法连接 {url}，原因：{exc.reason}") from exc
 
 
 class LLMConfigOpenAI:
