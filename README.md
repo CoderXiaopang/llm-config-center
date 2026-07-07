@@ -116,7 +116,37 @@ client = llm.openai()
 print(llm.model)
 ```
 
-如果调用 Chat Completions，可以用便捷方法自动带上配置中心里的 `model` 和默认参数：
+配置项「默认参数 JSON」建议写两个字段：
+
+```json
+{
+  "provider": "volcengine",
+  "task_type": "chat",
+  "temperature": 0.7,
+  "max_tokens": 4096
+}
+```
+
+`provider` 先覆盖这三个常用供应商：
+
+| provider | 说明 |
+| --- | --- |
+| `yunwu` | 云雾，按 OpenAI-compatible 调用 |
+| `volcengine` | 火山引擎/方舟，支持 seed 文本/VLM、seedream 图片 |
+| `bailian` | 阿里云百炼，支持 qwen 文本、qwen-vl、qwen-long 文件理解 |
+
+`task_type` 按真实接口分：
+
+| task_type | 调用方式 |
+| --- | --- |
+| `chat` | `client.chat.completions.create` |
+| `responses` | `client.responses.create`，适合火山 seed 多模态 |
+| `text_to_image` | `client.images.generate` 文生图 |
+| `image_to_image` | `client.images.generate`，通过 `extra_body.image` 传参考图 |
+| `image_edit` | `client.images.generate`，通过 `extra_body.image` 传待编辑图 |
+| `raw` | 只返回原生 OpenAI 客户端，业务侧自己调用 |
+
+云雾、百炼文本、普通 OpenAI-compatible 文本：
 
 ```python
 response = llm.create_chat_completion(
@@ -126,17 +156,85 @@ response = llm.create_chat_completion(
 print(response.choices[0].message.content)
 ```
 
-如果你想使用原生 OpenAI 对象，直接拿 `client` 自己调任何兼容接口：
+火山 seed 多模态/VLM：
 
 ```python
-client.chat.completions.create(
-    model=llm.model,
-    messages=[{"role": "user", "content": "你好"}],
-    **llm.default_params,
+response = llm.create_vision_response(
+    prompt="你看见了什么？",
+    image_urls="https://ark-project.tos-cn-beijing.volces.com/doc_image/ark_demo_img_1.png",
 )
+print(response)
+```
 
-# 如果你的上游服务支持 Responses API，也可以自己这样调：
-# client.responses.create(model=llm.model, input="你好")
+火山 seedream 文生图：
+
+```python
+response = llm.text_to_image(
+    "星际穿越，黑洞里冲出一辆快支离破碎的复古列车",
+    size="2K",
+    response_format="url",
+    extra_body={"watermark": True},
+)
+print(llm.image_urls(response))
+```
+
+火山 seedream 图生图/换装/编辑：
+
+```python
+response = llm.image_to_image(
+    prompt="将图1的服装换为图2的服装",
+    images=[
+        "https://ark-project.tos-cn-beijing.volces.com/doc_image/seedream4_imagesToimage_1.png",
+        "https://ark-project.tos-cn-beijing.volces.com/doc_image/seedream4_imagesToimage_2.png",
+    ],
+    size="2K",
+    response_format="url",
+    extra_body={
+        "watermark": True,
+        "sequential_image_generation": "disabled",
+    },
+)
+print(llm.image_urls(response))
+```
+
+百炼 qwen-vl：
+
+```python
+response = llm.create_vision_chat_completion(
+    prompt="这是什么？",
+    image_urls="https://dashscope.oss-cn-beijing.aliyuncs.com/images/dog_and_girl.jpeg",
+)
+print(response.model_dump_json())
+```
+
+百炼 qwen-long 文件理解：
+
+```python
+response = llm.create_file_chat_completion(
+    file="百炼系列手机产品介绍.docx",
+    prompt="这篇文章讲了什么？",
+)
+print(response.model_dump_json())
+```
+
+火山 seedream 配置项默认参数示例：
+
+```json
+{
+  "provider": "volcengine",
+  "task_type": "text_to_image",
+  "size": "2K",
+  "watermark": false
+}
+```
+
+百炼 qwen-plus/qwen-vl/qwen-long 配置项默认参数示例：
+
+```json
+{
+  "provider": "bailian",
+  "task_type": "chat"
+}
 ```
 
 直接运行测试函数：
