@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { App as AntApp, Button, Card, ConfigProvider, Form, Input, InputNumber, Layout, Menu, Modal, Popconfirm, Select, Space, Statistic, Table, Tag, Typography, message } from "antd";
+import { App as AntApp, Button, Card, Checkbox, ConfigProvider, Form, Input, InputNumber, Layout, Menu, Modal, Popconfirm, Select, Space, Statistic, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
 import { AppWindow, Boxes, ClipboardList, Database, FileKey, History, KeyRound, Layers, LayoutDashboard, LogOut, PlusCircle, ShieldCheck, SlidersHorizontal } from "lucide-react";
@@ -12,16 +12,7 @@ type Entity = Record<string, any>;
 const { Sider, Header, Content } = Layout;
 
 const menuItems = [
-  { key: "config-items", icon: <PlusCircle size={17} />, label: "配置项" },
-  { key: "dashboard", icon: <LayoutDashboard size={17} />, label: "总览" },
-  { key: "providers", icon: <Database size={17} />, label: "供应商管理" },
-  { key: "provider-api-keys", icon: <KeyRound size={17} />, label: "上游 API Key" },
-  { key: "models", icon: <Boxes size={17} />, label: "模型管理" },
-  { key: "aliases", icon: <SlidersHorizontal size={17} />, label: "模型别名" },
-  { key: "apps", icon: <AppWindow size={17} />, label: "应用管理" },
-  { key: "access-keys", icon: <FileKey size={17} />, label: "访问密钥" },
-  { key: "permissions", icon: <ShieldCheck size={17} />, label: "权限管理" },
-  { key: "audit-logs", icon: <History size={17} />, label: "审计日志" }
+  { key: "config-items", icon: <PlusCircle size={17} />, label: "配置项" }
 ];
 
 function statusTag(status?: string) {
@@ -105,7 +96,7 @@ function AppShell() {
         <Header className="topbar">
           <div>
             <Typography.Title level={4}>{menuItems.find((item) => item.key === page)?.label || "总览"}</Typography.Title>
-            <span>维护 Runtime API 可下发的模型配置</span>
+            <span>一处维护客户端初始化需要的模型配置</span>
           </div>
           <Space>
             <Tag color="cyan">{user}</Tag>
@@ -136,6 +127,7 @@ function renderPage(page: string) {
 function ConfigItemPage() {
   const [rows, setRows] = useState<Entity[]>([]);
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Entity | null>(null);
   const [form] = Form.useForm();
 
   async function load() {
@@ -164,7 +156,16 @@ function ConfigItemPage() {
     });
   }
 
-  async function createItem() {
+  async function copyText(text?: string) {
+    if (!text) {
+      message.warning("这个历史密钥没有保存明文，请编辑配置项后重新生成");
+      return;
+    }
+    await navigator.clipboard.writeText(text);
+    message.success("已复制");
+  }
+
+  async function saveItem() {
     const raw = await form.validateFields();
     let params = {};
     try {
@@ -177,15 +178,19 @@ function ConfigItemPage() {
     const payload = {
       ...raw,
       default_params: params,
-      create_access_key: true,
+      create_access_key: Boolean(raw.create_access_key),
       status: "enabled"
     };
     try {
-      const data = pickData<Entity>(await api.post("/config-items", payload));
-      message.success("配置项已创建");
+      const response = editing ? await api.put(`/config-items/${editing.id}`, payload) : await api.post("/config-items", { ...payload, create_access_key: true });
+      const data = pickData<Entity>(response);
+      message.success(editing ? "配置项已更新" : "配置项已创建");
       setOpen(false);
+      setEditing(null);
       form.resetFields();
-      showResult(data);
+      if (data.access_key) {
+        showResult(data);
+      }
       load();
     } catch (error: any) {
       message.error(error.response?.data?.message || "创建失败");
@@ -193,6 +198,7 @@ function ConfigItemPage() {
   }
 
   function startCreate() {
+    setEditing(null);
     form.setFieldsValue({
       env: "prod",
       provider_code: "openai",
@@ -201,7 +207,28 @@ function ConfigItemPage() {
       app_code: "default-client",
       app_name: "默认客户端",
       access_key_name: "默认访问密钥",
+      create_access_key: true,
       default_params: JSON.stringify({ temperature: 0.7, max_tokens: 4096, timeout: 60, stream: true }, null, 2)
+    });
+    setOpen(true);
+  }
+
+  function startEdit(row: Entity) {
+    setEditing(row);
+    form.setFieldsValue({
+      alias: row.alias,
+      env: row.env,
+      provider_code: row.provider_code,
+      provider_name: row.provider_name,
+      base_url: row.base_url,
+      model_name: row.model_name,
+      model_type: row.model_type,
+      api_key: undefined,
+      default_params: JSON.stringify(row.params || {}, null, 2),
+      app_code: row.app_code || "default-client",
+      app_name: row.app_code || "默认客户端",
+      access_key_name: `${row.alias || "default"}-key`,
+      create_access_key: false
     });
     setOpen(true);
   }
@@ -224,13 +251,23 @@ function ConfigItemPage() {
           { title: "供应商", dataIndex: "provider_name" },
           { title: "模型", dataIndex: "model_name" },
           { title: "Base URL", dataIndex: "base_url", ellipsis: true },
-          { title: "Key", dataIndex: "key_mask" },
-          { title: "客户端", dataIndex: "app_code" },
+          {
+            title: "访问密钥",
+            dataIndex: "access_key",
+            width: 260,
+            render: (value) => (
+              <Space>
+                <Typography.Text code className="secret-cell">{value || "历史密钥不可显示"}</Typography.Text>
+                <Button size="small" onClick={() => copyText(value)}>复制</Button>
+              </Space>
+            )
+          },
           { title: "版本", dataIndex: "version", width: 80 },
-          { title: "状态", dataIndex: "status", render: statusTag, width: 90 }
+          { title: "状态", dataIndex: "status", render: statusTag, width: 90 },
+          { title: "操作", width: 90, render: (_, row) => <Button size="small" onClick={() => startEdit(row)}>编辑</Button> }
         ]}
       />
-      <Modal title="新增配置项" open={open} onOk={createItem} onCancel={() => setOpen(false)} okText="创建配置项" cancelText="取消" width={760}>
+      <Modal title={editing ? "编辑配置项" : "新增配置项"} open={open} onOk={saveItem} onCancel={() => setOpen(false)} okText={editing ? "保存修改" : "创建配置项"} cancelText="取消" width={760}>
         <Form form={form} layout="vertical">
           <div className="form-grid">
             <Form.Item label="Alias（业务代码使用的名称）" name="alias" rules={[{ required: true, message: "请输入 Alias" }]}>
@@ -257,8 +294,8 @@ function ConfigItemPage() {
               <Select options={["chat", "vision", "embedding", "rerank", "image", "audio"].map((value) => ({ label: value, value }))} />
             </Form.Item>
           </div>
-          <Form.Item label="上游 API Key" name="api_key" rules={[{ required: true, message: "请输入上游 API Key" }]}>
-            <Input.Password placeholder="这里填真实模型供应商的 API Key，数据库会加密保存" />
+          <Form.Item label="上游 API Key" name="api_key" rules={[{ required: !editing, message: "请输入上游 API Key" }]}>
+            <Input.Password placeholder={editing ? "不填则保留原来的上游 API Key" : "这里填真实模型供应商的 API Key"} />
           </Form.Item>
           <Form.Item label="默认参数 JSON" name="default_params">
             <Input.TextArea rows={6} />
@@ -274,6 +311,11 @@ function ConfigItemPage() {
           <Form.Item label="访问密钥名称" name="access_key_name" rules={[{ required: true, message: "请输入访问密钥名称" }]}>
             <Input placeholder="例如 requirement-api-prod-key" />
           </Form.Item>
+          {editing && (
+            <Form.Item name="create_access_key" valuePropName="checked">
+              <Checkbox>重新生成并保存新的访问密钥</Checkbox>
+            </Form.Item>
+          )}
         </Form>
       </Modal>
     </Card>

@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 
 from app.api.admin import router as admin_router
 from app.api.runtime import router as runtime_router
@@ -11,9 +11,20 @@ from app.db.session import Base, SessionLocal, engine
 from app.models import User
 
 
+def ensure_lightweight_migrations() -> None:
+    inspector = inspect(engine)
+    if "llm_app_access_key" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("llm_app_access_key")}
+    if "encrypted_access_key" not in columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE llm_app_access_key ADD COLUMN encrypted_access_key TEXT"))
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     Base.metadata.create_all(bind=engine)
+    ensure_lightweight_migrations()
     app = FastAPI(title=settings.app_name)
     app.add_middleware(
         CORSMiddleware,
@@ -54,4 +65,3 @@ def init_admin() -> None:
 
 app = create_app()
 init_admin()
-

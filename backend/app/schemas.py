@@ -102,6 +102,7 @@ class AccessKeyOut(ORMModel):
     name: str
     key_prefix: str
     key_mask: str | None = None
+    access_key: str | None = None
     status: str
     expires_at: datetime | None = None
     last_used_at: datetime | None = None
@@ -130,7 +131,7 @@ class ConfigItemIn(BaseModel):
     provider_code: str
     provider_name: str
     base_url: str
-    api_key: str
+    api_key: str | None = None
     model_name: str
     model_type: str = "chat"
     default_params: dict[str, Any] | None = None

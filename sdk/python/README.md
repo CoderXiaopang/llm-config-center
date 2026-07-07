@@ -15,13 +15,13 @@
 1. 打开「配置项」。
 2. 点击「新增配置项」。
 3. 一次填完 `Alias`、`Base URL`、真实模型名、上游 `API Key`、默认参数、客户端编码。
-4. 保存后弹窗会展示 SDK 需要的 `access_key`、`alias` 和示例代码。
+4. 保存后弹窗和配置项列表都会展示 SDK 需要的 `access_key`，可以直接复制。
 
 客户端初始化只需要：
 
 ```text
 server_url：配置中心后端地址
-access_key：弹窗里展示的一次性访问密钥
+access_key：配置项列表里可以复制的访问密钥
 env：环境，默认 prod
 alias：配置项里的 Alias
 ```
@@ -64,7 +64,7 @@ client = LLMConfigClient(
 | 参数 | 必填 | 说明 |
 | --- | --- | --- |
 | `server_url` | 是 | 配置中心后端地址，例如 `http://localhost:8000` |
-| `access_key` | 是 | 后台「访问密钥」页面创建的 App Access Key，不是上游模型 API Key |
+| `access_key` | 是 | 后台「配置项」页面里复制的访问密钥，不是上游模型 API Key |
 | `env` | 否 | 配置环境，默认 `prod` |
 | `refresh_interval` | 否 | SDK 检查配置版本的最小间隔，单位秒，默认 `60` |
 | `timeout` | 否 | HTTP 请求超时时间，单位秒，默认 `10.0` |

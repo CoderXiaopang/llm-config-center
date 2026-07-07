@@ -166,6 +166,15 @@ body {
   gap: 0 14px;
 }
 
+.secret-cell {
+  display: inline-block;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 .ant-card {
   border-radius: 8px;
 }

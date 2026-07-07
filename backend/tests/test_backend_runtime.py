@@ -119,14 +119,14 @@ def test_provider_and_provider_api_key_do_not_store_plaintext(client, admin_head
         db.close()
 
 
-def test_access_key_only_returned_once_and_hash_stored(client, admin_headers):
+def test_access_key_can_be_copied_and_hash_stored(client, admin_headers):
     data = create_full_config(client, admin_headers)
     full_key = data["access_key"]["access_key"]
     assert full_key.startswith("lcg_ak_")
 
     app_id = data["app"]["id"]
     listed = unwrap(client.get(f"/api/v1/admin/apps/{app_id}/access-keys", headers=admin_headers))
-    assert "access_key" not in listed[0]
+    assert listed[0]["access_key"] == full_key
     assert listed[0]["key_mask"].endswith(".****")
 
     db = next(client.app.dependency_overrides[get_db]())
@@ -227,7 +227,7 @@ def test_simple_config_item_creates_runtime_ready_config(client, admin_headers):
     listed = unwrap(client.get("/api/v1/admin/config-items", headers=admin_headers))
     assert listed[0]["alias"] == "chat-simple"
     assert listed[0]["key_mask"] == "sk-****cret"
-    assert "access_key" not in listed[0] or listed[0]["access_key"] is None
+    assert listed[0]["access_key"] == created["access_key"]
 
     runtime = client.get(
         "/api/v1/runtime/configs/chat-simple?env=prod",
@@ -238,3 +238,35 @@ def test_simple_config_item_creates_runtime_ready_config(client, admin_headers):
     assert payload["model"] == "doubao-seed-1.6"
     assert payload["api_key"] == "sk-simple-secret"
     assert payload["params"]["max_tokens"] == 2048
+
+    updated = unwrap(
+        client.put(
+            f"/api/v1/admin/config-items/{created['id']}",
+            headers=admin_headers,
+            json={
+                "alias": "seed5",
+                "env": "prod",
+                "provider_code": "volcengine",
+                "provider_name": "火山引擎",
+                "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+                "api_key": "sk-updated-secret",
+                "model_name": "doubao-seed-evolving",
+                "model_type": "chat",
+                "default_params": {"temperature": 0.7, "max_tokens": 4096},
+                "app_code": "simple-client",
+                "app_name": "简单客户端",
+                "access_key_name": "simple-client-key",
+                "create_access_key": True,
+            },
+        )
+    )
+    assert updated["alias"] == "seed5"
+    assert updated["model_name"] == "doubao-seed-evolving"
+    assert updated["access_key"].startswith("lcg_ak_")
+
+    runtime_after_edit = client.get(
+        "/api/v1/runtime/configs/seed5?env=prod",
+        headers={"Authorization": f"Bearer {updated['access_key']}"},
+    )
+    assert runtime_after_edit.status_code == 200, runtime_after_edit.text
+    assert runtime_after_edit.json()["api_key"] == "sk-updated-secret"

@@ -113,6 +113,7 @@ class AppAccessKey(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     key_prefix: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     key_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    encrypted_access_key: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="enabled")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
@@ -155,4 +156,3 @@ class AuditLog(Base):
     ip: Mapped[str | None] = mapped_column(String(100))
     user_agent: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-

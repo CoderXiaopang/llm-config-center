@@ -1,10 +1,10 @@
 # 大模型配置中心
 
-LLM Config Center 是一个内部使用的大模型配置中心，用于统一管理供应商、模型、上游 API Key、模型别名、应用访问密钥和 Alias 读取权限。业务服务通过 Runtime API 拉取有权限的配置，再在本地初始化 OpenAI-compatible 客户端。
+LLM Config Center 是一个内部使用的大模型配置中心。后台只需要维护「配置项」：一次填完 `Alias`、`Base URL`、模型名、上游 API Key、默认参数和访问密钥，业务服务通过 SDK 拉取配置后初始化 OpenAI-compatible 客户端。
 
 ## 功能范围
 
-- 中文 Web 管理后台：登录、供应商、上游 API Key、模型、Alias、应用、访问密钥、权限、审计日志。
+- 中文 Web 管理后台：登录、配置项新增、配置项编辑、访问密钥复制。
 - 后端 Runtime API：Access Key 鉴权、App 权限校验、禁用/过期状态校验、真实上游 API Key 解密下发。
 - 安全处理：密码哈希、Access Key 哈希、上游 API Key Fernet 加密、审计日志脱敏。
 - 配置版本：影响 Runtime 下发结果的 Alias/权限等变更会递增版本。
@@ -42,32 +42,18 @@ INIT_ADMIN_PASSWORD=admin123456
 
 ## 最小演示流程
 
-现在默认推荐走简单流程：
-
 1. 登录后台。
 2. 进入「配置项」页面。
 3. 点击「新增配置项」。
 4. 一次填完 `Alias`、环境、供应商、`Base URL`、真实模型名、上游 `API Key`、默认参数、客户端名称。
 5. 保存后系统会自动创建底层供应商、模型、模型别名、客户端权限和访问密钥。
-6. 弹窗里会给出客户端要保存的 `access_key` 和 Python SDK 示例。
-
-高级页面仍然保留，用于排查或细粒度修改。
-
-## 高级手动流程
-
-1. 登录后台。
-2. 在「供应商管理」创建 Provider，例如 `volcengine`。
-3. 在「上游 API Key」创建真实模型服务 API Key，列表只显示脱敏值。
-4. 在「模型管理」创建模型，例如 `doubao-seed-1.6`。
-5. 在「模型别名」创建 `prod / chat-default`，绑定模型和上游 API Key。
-6. 在「应用管理」创建业务应用，例如 `requirement-api`。
-7. 在「访问密钥」输入应用 ID，创建 App Access Key，并立即保存弹窗里的完整密钥。
-8. 在「权限管理」给应用授权 `prod / chat-default`。
+6. 弹窗和列表里都可以复制客户端要用的 `access_key`。
+7. 后续要改模型、Key、参数或 Base URL，直接点配置项右侧「编辑」。
 
 Runtime API 调用：
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/runtime/configs/chat-default?env=prod" \
+curl -X GET "http://localhost:8000/api/v1/runtime/configs/seed5?env=prod" \
   -H "Authorization: Bearer <access_key>"
 ```
 
@@ -75,7 +61,7 @@ curl -X GET "http://localhost:8000/api/v1/runtime/configs/chat-default?env=prod"
 
 ```json
 {
-  "alias": "chat-default",
+  "alias": "seed5",
   "env": "prod",
   "provider": {
     "code": "volcengine",
@@ -83,7 +69,7 @@ curl -X GET "http://localhost:8000/api/v1/runtime/configs/chat-default?env=prod"
     "protocol": "openai_compatible"
   },
   "base_url": "https://ark.cn-beijing.volces.com/api/v3",
-  "model": "doubao-seed-1.6",
+  "model": "doubao-seed-evolving",
   "api_key": "sk-xxxx",
   "params": {
     "temperature": 0.7,

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.access_key import generate_access_key, hash_access_key_secret
 from app.core.audit import write_audit
-from app.core.crypto import encrypt_api_key, mask_secret
+from app.core.crypto import decrypt_api_key, encrypt_api_key, mask_secret
 from app.core.security import create_access_token, verify_password
 from app.core.versioning import bump_config_version
 from app.db.session import get_db
@@ -83,6 +83,36 @@ def _config_item_payload(
     ).model_dump(mode="json")
 
 
+def _decrypt_optional(encrypted_value: str | None) -> str | None:
+    if not encrypted_value:
+        return None
+    try:
+        return decrypt_api_key(encrypted_value)
+    except Exception:
+        return None
+
+
+def _latest_access_key_for_config(db: Session, alias: str, env: str) -> tuple[str | None, str | None]:
+    permission = db.scalar(
+        select(AppPermission).where(
+            AppPermission.alias == alias,
+            AppPermission.env == env,
+            AppPermission.can_read_config.is_(True),
+        )
+    )
+    if permission is None:
+        return None, None
+    app = db.get(App, permission.app_id)
+    if app is None:
+        return None, None
+    key = db.scalar(
+        select(AppAccessKey)
+        .where(AppAccessKey.app_id == app.id, AppAccessKey.status == "enabled")
+        .order_by(AppAccessKey.id.desc())
+    )
+    return app.app_code, _decrypt_optional(key.encrypted_access_key if key else None)
+
+
 @router.post("/auth/login")
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.username == payload.username))
@@ -129,12 +159,9 @@ def list_config_items(db: Session = Depends(get_db), _: User = Depends(get_curre
         .join(ProviderApiKey, ModelAlias.provider_api_key_id == ProviderApiKey.id)
         .order_by(ModelAlias.id.desc())
     ).all()
-    permissions = db.scalars(select(AppPermission)).all()
-    app_ids = {permission.alias: permission.app_id for permission in permissions}
-    apps = {app.id: app.app_code for app in db.scalars(select(App)).all()}
     return ok(
         [
-            _config_item_payload(alias, model, provider, provider_key, apps.get(app_ids.get(alias.alias)))
+            _config_item_payload(alias, model, provider, provider_key, *_latest_access_key_for_config(db, alias.alias, alias.env))
             for alias, model, provider, provider_key in rows
         ]
     )
@@ -142,6 +169,8 @@ def list_config_items(db: Session = Depends(get_db), _: User = Depends(get_curre
 
 @router.post("/config-items")
 def create_config_item(payload: ConfigItemIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if not payload.api_key:
+        raise HTTPException(status_code=422, detail="api_key required")
     provider = db.scalar(select(Provider).where(Provider.code == payload.provider_code))
     if provider is None:
         provider = Provider(
@@ -236,6 +265,7 @@ def create_config_item(payload: ConfigItemIn, db: Session = Depends(get_db), use
                 name=payload.access_key_name,
                 key_prefix=prefix,
                 key_hash=hash_access_key_secret(secret),
+                encrypted_access_key=encrypt_api_key(full_access_key),
                 status="enabled",
                 created_by=user.id,
             )
@@ -245,6 +275,123 @@ def create_config_item(payload: ConfigItemIn, db: Session = Depends(get_db), use
     write_audit(
         db,
         action="create_config_item",
+        resource_type="config_item",
+        resource_id=alias.id,
+        user_id=user.id,
+        after_data=payload.model_dump(),
+    )
+    db.commit()
+    return ok(_config_item_payload(alias, model, provider, provider_key, app.app_code, full_access_key))
+
+
+@router.put("/config-items/{alias_id}")
+def update_config_item(alias_id: int, payload: ConfigItemIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    alias = db.get(ModelAlias, alias_id)
+    if alias is None:
+        raise HTTPException(status_code=404, detail="NOT_FOUND")
+
+    provider = db.scalar(select(Provider).where(Provider.code == payload.provider_code))
+    if provider is None:
+        provider = Provider(
+            code=payload.provider_code,
+            name=payload.provider_name,
+            protocol="openai_compatible",
+            base_url=payload.base_url,
+            status="enabled",
+            description=f"由配置项 {payload.alias} 自动创建",
+        )
+        db.add(provider)
+        db.flush()
+    else:
+        provider.name = payload.provider_name
+        provider.base_url = payload.base_url
+        provider.status = "enabled"
+
+    model = db.scalar(select(LLMModel).where(LLMModel.provider_id == provider.id, LLMModel.model_name == payload.model_name))
+    if model is None:
+        model = LLMModel(
+            provider_id=provider.id,
+            model_name=payload.model_name,
+            display_name=payload.model_name,
+            model_type=payload.model_type,
+            status="enabled",
+        )
+        db.add(model)
+        db.flush()
+    else:
+        model.model_type = payload.model_type
+        model.status = "enabled"
+
+    provider_key = db.get(ProviderApiKey, alias.provider_api_key_id)
+    if provider_key is None or payload.api_key:
+        provider_key = ProviderApiKey(
+            provider_id=provider.id,
+            name=f"{payload.alias} 上游 Key",
+            encrypted_api_key=encrypt_api_key(payload.api_key or ""),
+            key_mask=mask_secret(payload.api_key or ""),
+            status="enabled",
+            priority=100,
+            created_by=user.id,
+        )
+        db.add(provider_key)
+        db.flush()
+    else:
+        provider_key.provider_id = provider.id
+        provider_key.status = "enabled"
+
+    old_env = alias.env
+    alias.alias = payload.alias
+    alias.env = payload.env
+    alias.model_id = model.id
+    alias.provider_api_key_id = provider_key.id
+    alias.default_params = payload.default_params or {}
+    alias.status = payload.status
+    alias.description = payload.description
+    alias.version += 1
+    bump_config_version(db, payload.env)
+    if old_env != payload.env:
+        bump_config_version(db, old_env)
+
+    app = db.scalar(select(App).where(App.app_code == payload.app_code))
+    if app is None:
+        app = App(app_code=payload.app_code, app_name=payload.app_name, status="enabled", created_by=user.id)
+        db.add(app)
+        db.flush()
+    else:
+        app.app_name = payload.app_name
+        app.status = "enabled"
+
+    permission = db.scalar(select(AppPermission).where(AppPermission.alias == payload.alias, AppPermission.env == payload.env))
+    if permission is None:
+        permission = AppPermission(app_id=app.id, alias=payload.alias, env=payload.env, can_read_config=True, created_by=user.id)
+        db.add(permission)
+        db.flush()
+        bump_config_version(db, payload.env)
+    else:
+        permission.app_id = app.id
+        permission.can_read_config = True
+
+    full_access_key = None
+    if payload.create_access_key:
+        prefix, secret, full_access_key = generate_access_key()
+        db.add(
+            AppAccessKey(
+                app_id=app.id,
+                name=payload.access_key_name,
+                key_prefix=prefix,
+                key_hash=hash_access_key_secret(secret),
+                encrypted_access_key=encrypt_api_key(full_access_key),
+                status="enabled",
+                created_by=user.id,
+            )
+        )
+        db.flush()
+    else:
+        _, full_access_key = _latest_access_key_for_config(db, payload.alias, payload.env)
+
+    write_audit(
+        db,
+        action="update_config_item",
         resource_type="config_item",
         resource_id=alias.id,
         user_id=user.id,
@@ -500,6 +647,7 @@ def create_access_key(app_id: int, payload: AccessKeyIn, db: Session = Depends(g
         raise HTTPException(status_code=404, detail="NOT_FOUND")
     prefix, secret, full_key = generate_access_key()
     row = AppAccessKey(app_id=app_id, name=payload.name, key_prefix=prefix, key_hash=hash_access_key_secret(secret), expires_at=payload.expires_at, created_by=user.id)
+    row.encrypted_access_key = encrypt_api_key(full_key)
     db.add(row)
     db.flush()
     write_audit(db, action="create_access_key", resource_type="llm_app_access_key", resource_id=row.id, user_id=user.id, after_data={"name": payload.name, "key_prefix": prefix})
@@ -511,7 +659,16 @@ def create_access_key(app_id: int, payload: AccessKeyIn, db: Session = Depends(g
 @router.get("/apps/{app_id}/access-keys")
 def list_access_keys(app_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     rows = db.scalars(select(AppAccessKey).where(AppAccessKey.app_id == app_id).order_by(AppAccessKey.id.desc()))
-    return ok([{**AccessKeyOut.model_validate(item).model_dump(mode="json"), "key_mask": f"lcg_ak_{item.key_prefix}.****"} for item in rows])
+    return ok(
+        [
+            {
+                **AccessKeyOut.model_validate(item).model_dump(mode="json"),
+                "key_mask": f"lcg_ak_{item.key_prefix}.****",
+                "access_key": _decrypt_optional(item.encrypted_access_key),
+            }
+            for item in rows
+        ]
+    )
 
 
 @router.post("/access-keys/{key_id}/{action}")
