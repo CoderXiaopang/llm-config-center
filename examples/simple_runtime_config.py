@@ -15,6 +15,17 @@ SUPPORTED_PROVIDERS = {"yunwu", "volcengine", "bailian", "openai_compatible"}
 IMAGE_EXTRA_BODY_KEYS = {"image", "watermark", "sequential_image_generation"}
 
 
+def normalize_server_url(server_url: str) -> str:
+    cleaned = server_url.strip()
+    if cleaned.startswith("http://http://"):
+        cleaned = cleaned.removeprefix("http://")
+    if cleaned.startswith("https://https://"):
+        cleaned = cleaned.removeprefix("https://")
+    if not cleaned.startswith(("http://", "https://")):
+        raise ValueError("server_url 必须以 http:// 或 https:// 开头")
+    return cleaned.rstrip("/")
+
+
 def get_llm_config(
     alias: str,
     access_key: str,
@@ -23,7 +34,7 @@ def get_llm_config(
     timeout: float = 10.0,
 ) -> dict[str, Any]:
     query = urllib.parse.urlencode({"env": env})
-    url = f"{server_url.rstrip('/')}/api/v1/runtime/configs/{urllib.parse.quote(alias)}?{query}"
+    url = f"{normalize_server_url(server_url)}/api/v1/runtime/configs/{urllib.parse.quote(alias)}?{query}"
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {access_key}"})
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
