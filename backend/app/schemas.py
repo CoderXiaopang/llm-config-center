@@ -13,6 +13,36 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class UserCreateIn(BaseModel):
+    username: str
+    password: str
+    display_name: str | None = None
+    role: str = "admin"
+    status: str = "enabled"
+
+
+class UserUpdateIn(BaseModel):
+    username: str
+    display_name: str | None = None
+    role: str = "admin"
+    status: str = "enabled"
+
+
+class UserPasswordIn(BaseModel):
+    password: str
+
+
+class UserOut(ORMModel):
+    id: int
+    username: str
+    display_name: str | None = None
+    role: str
+    status: str
+    last_login_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class ProviderIn(BaseModel):
     code: str
     name: str

@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import { App as AntApp, Button, Card, Checkbox, ConfigProvider, Form, Input, InputNumber, Layout, Menu, Modal, Popconfirm, Select, Space, Statistic, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
-import { AppWindow, Boxes, ClipboardList, Database, FileKey, History, KeyRound, Layers, LayoutDashboard, LogOut, PlusCircle, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { AppWindow, Boxes, ClipboardList, Database, FileKey, History, KeyRound, Layers, LayoutDashboard, LogOut, PlusCircle, ShieldCheck, SlidersHorizontal, UsersRound } from "lucide-react";
 import { api, pickData } from "./api/client";
 import "./styles.css";
 
@@ -12,7 +12,8 @@ type Entity = Record<string, any>;
 const { Sider, Header, Content } = Layout;
 
 const menuItems = [
-  { key: "config-items", icon: <PlusCircle size={17} />, label: "配置项" }
+  { key: "config-items", icon: <PlusCircle size={17} />, label: "配置项" },
+  { key: "users", icon: <UsersRound size={17} />, label: "用户管理" }
 ];
 
 function statusTag(status?: string) {
@@ -113,6 +114,7 @@ function AppShell() {
 
 function renderPage(page: string) {
   if (page === "config-items") return <ConfigItemPage />;
+  if (page === "users") return <UserPage />;
   if (page === "dashboard") return <Dashboard />;
   if (page === "providers") return <ProviderPage />;
   if (page === "provider-api-keys") return <ProviderKeyPage />;
@@ -122,6 +124,130 @@ function renderPage(page: string) {
   if (page === "access-keys") return <AccessKeyPage />;
   if (page === "permissions") return <PermissionPage />;
   return <AuditPage />;
+}
+
+function UserPage() {
+  const [rows, setRows] = useState<Entity[]>([]);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Entity | null>(null);
+  const [form] = Form.useForm();
+
+  async function load() {
+    setRows(pickData<Entity[]>(await api.get("/users")));
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  function startCreate() {
+    setEditing(null);
+    form.setFieldsValue({ role: "admin", status: "enabled" });
+    setOpen(true);
+  }
+
+  function startEdit(row: Entity) {
+    setEditing(row);
+    form.setFieldsValue({
+      username: row.username,
+      display_name: row.display_name,
+      role: row.role,
+      status: row.status,
+      password: undefined
+    });
+    setOpen(true);
+  }
+
+  async function saveUser() {
+    const values = await form.validateFields();
+    try {
+      if (editing) {
+        await api.put(`/users/${editing.id}`, {
+          username: values.username,
+          display_name: values.display_name,
+          role: values.role,
+          status: values.status
+        });
+        if (values.password) {
+          await api.post(`/users/${editing.id}/password`, { password: values.password });
+        }
+        message.success("用户已更新");
+      } else {
+        await api.post("/users", values);
+        message.success("用户已创建");
+      }
+      setOpen(false);
+      setEditing(null);
+      form.resetFields();
+      load();
+    } catch (error: any) {
+      const detail = error.response?.data?.detail;
+      message.error(detail === "USERNAME_EXISTS" ? "用户名已存在" : "保存失败");
+    }
+  }
+
+  async function toggleUser(row: Entity) {
+    const action = row.status === "enabled" ? "disable" : "enable";
+    await api.post(`/users/${row.id}/${action}`);
+    message.success(row.status === "enabled" ? "用户已禁用" : "用户已启用");
+    load();
+  }
+
+  return (
+    <Card title="用户管理" extra={<Button type="primary" onClick={startCreate}>新增用户</Button>}>
+      <Table
+        rowKey="id"
+        dataSource={rows}
+        pagination={{ pageSize: 10 }}
+        columns={[
+          { title: "ID", dataIndex: "id", width: 70 },
+          { title: "用户名", dataIndex: "username" },
+          { title: "显示名称", dataIndex: "display_name" },
+          { title: "角色", dataIndex: "role", width: 130 },
+          { title: "状态", dataIndex: "status", render: statusTag, width: 90 },
+          { title: "最近登录", dataIndex: "last_login_at" },
+          {
+            title: "操作",
+            width: 170,
+            render: (_, row) => (
+              <Space>
+                <Button size="small" onClick={() => startEdit(row)}>编辑</Button>
+                <Popconfirm title={`确认${row.status === "enabled" ? "禁用" : "启用"}该用户？`} okText="确认" cancelText="取消" onConfirm={() => toggleUser(row)}>
+                  <Button size="small" danger={row.status === "enabled"}>{row.status === "enabled" ? "禁用" : "启用"}</Button>
+                </Popconfirm>
+              </Space>
+            )
+          }
+        ]}
+      />
+      <Modal title={editing ? "编辑用户" : "新增用户"} open={open} onOk={saveUser} onCancel={() => setOpen(false)} okText="保存" cancelText="取消" width={620}>
+        <Form form={form} layout="vertical">
+          <Form.Item label="用户名" name="username" rules={[{ required: true, message: "请输入用户名" }]}>
+            <Input placeholder="例如 zhangsan" />
+          </Form.Item>
+          <Form.Item label="显示名称" name="display_name">
+            <Input placeholder="例如 张三" />
+          </Form.Item>
+          <div className="form-grid">
+            <Form.Item label="角色" name="role" rules={[{ required: true, message: "请选择角色" }]}>
+              <Select options={[
+                { label: "管理员", value: "admin" },
+                { label: "超级管理员", value: "super_admin" },
+                { label: "查看者", value: "viewer" },
+                { label: "操作员", value: "operator" }
+              ]} />
+            </Form.Item>
+            <Form.Item label="状态" name="status" rules={[{ required: true, message: "请选择状态" }]}>
+              <Select options={[{ label: "启用", value: "enabled" }, { label: "禁用", value: "disabled" }]} />
+            </Form.Item>
+          </div>
+          <Form.Item label={editing ? "重置密码（不填则不修改）" : "密码"} name="password" rules={[{ required: !editing, message: "请输入密码" }]}>
+            <Input.Password placeholder={editing ? "不填则保留原密码" : "请输入初始密码"} />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </Card>
+  );
 }
 
 function ConfigItemPage() {

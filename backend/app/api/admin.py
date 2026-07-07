@@ -8,7 +8,7 @@ from app.api.deps import get_current_user
 from app.core.access_key import generate_access_key, hash_access_key_secret
 from app.core.audit import write_audit
 from app.core.crypto import decrypt_api_key, encrypt_api_key, mask_secret
-from app.core.security import create_access_token, verify_password
+from app.core.security import create_access_token, hash_password, verify_password
 from app.core.versioning import bump_config_version
 from app.db.session import get_db
 from app.models import App, AppAccessKey, AppPermission, AuditLog, ConfigVersion, LLMModel, ModelAlias, Provider, ProviderApiKey, User
@@ -31,6 +31,10 @@ from app.schemas import (
     ProviderApiKeyOut,
     ProviderIn,
     ProviderOut,
+    UserCreateIn,
+    UserOut,
+    UserPasswordIn,
+    UserUpdateIn,
 )
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -133,6 +137,71 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 @router.get("/auth/me")
 def me(current_user: User = Depends(get_current_user)):
     return ok({"id": current_user.id, "username": current_user.username, "display_name": current_user.display_name, "role": current_user.role})
+
+
+@router.get("/users")
+def list_users(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    rows = db.scalars(select(User).order_by(User.id.desc()))
+    return ok([UserOut.model_validate(row).model_dump(mode="json") for row in rows])
+
+
+@router.post("/users")
+def create_user(payload: UserCreateIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    exists = db.scalar(select(User).where(User.username == payload.username))
+    if exists is not None:
+        raise HTTPException(status_code=409, detail="USERNAME_EXISTS")
+    row = User(
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        display_name=payload.display_name,
+        role=payload.role,
+        status=payload.status,
+    )
+    db.add(row)
+    db.flush()
+    write_audit(db, action="create_user", resource_type="sys_user", resource_id=row.id, user_id=current_user.id, after_data=payload.model_dump())
+    db.commit()
+    return ok(UserOut.model_validate(row).model_dump(mode="json"))
+
+
+@router.put("/users/{user_id}")
+def update_user(user_id: int, payload: UserUpdateIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    row = db.get(User, user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="NOT_FOUND")
+    duplicate = db.scalar(select(User).where(User.username == payload.username, User.id != user_id))
+    if duplicate is not None:
+        raise HTTPException(status_code=409, detail="USERNAME_EXISTS")
+    before = UserOut.model_validate(row).model_dump(mode="json")
+    row.username = payload.username
+    row.display_name = payload.display_name
+    row.role = payload.role
+    row.status = payload.status
+    write_audit(db, action="update_user", resource_type="sys_user", resource_id=row.id, user_id=current_user.id, before_data=before, after_data=payload.model_dump())
+    db.commit()
+    return ok(UserOut.model_validate(row).model_dump(mode="json"))
+
+
+@router.post("/users/{user_id}/password")
+def reset_user_password(user_id: int, payload: UserPasswordIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    row = db.get(User, user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="NOT_FOUND")
+    row.password_hash = hash_password(payload.password)
+    write_audit(db, action="reset_user_password", resource_type="sys_user", resource_id=row.id, user_id=current_user.id, after_data={"password": payload.password})
+    db.commit()
+    return ok({"id": row.id})
+
+
+@router.post("/users/{user_id}/{action}")
+def toggle_user(user_id: int, action: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    row = db.get(User, user_id)
+    if row is None or action not in {"enable", "disable"}:
+        raise HTTPException(status_code=404, detail="NOT_FOUND")
+    row.status = "enabled" if action == "enable" else "disabled"
+    write_audit(db, action=f"{action}_user", resource_type="sys_user", resource_id=row.id, user_id=current_user.id)
+    db.commit()
+    return ok(UserOut.model_validate(row).model_dump(mode="json"))
 
 
 @router.get("/dashboard")
