@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -169,6 +169,7 @@ class ConfigItemIn(BaseModel):
     api_key: str | None = None
     model_name: str
     model_type: str = "chat"
+    call_type: Literal["chat", "responses", "image"] = "chat"
     default_params: dict[str, Any] | None = None
     app_code: str = "default-client"
     app_name: str = "默认客户端"
@@ -187,6 +188,7 @@ class ConfigItemOut(ORMModel):
     base_url: str
     model_name: str
     model_type: str
+    call_type: str
     key_mask: str | None = None
     params: dict[str, Any]
     status: str

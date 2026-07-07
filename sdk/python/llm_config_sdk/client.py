@@ -17,6 +17,7 @@ class ModelConfig:
     api_key: str
     params: dict[str, Any]
     version: int
+    call_type: str = "chat"
     updated_at: str | None = None
 
     @classmethod

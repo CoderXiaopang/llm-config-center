@@ -14,6 +14,31 @@ from app.models import App, AppPermission, ConfigVersion, LLMModel, ModelAlias, 
 
 router = APIRouter(prefix="/api/v1/runtime", tags=["runtime"])
 logger = logging.getLogger(__name__)
+CALL_TYPES = {"chat", "responses", "image"}
+CALL_TYPE_PARAM_KEYS = {"call_type", "task_type"}
+
+
+def _normalize_call_type(value: str | None, model_name: str | None = None, model_type: str | None = None) -> str:
+    if value == "text_to_image" or value == "image_to_image" or value == "image_edit":
+        return "image"
+    if value in CALL_TYPES:
+        return value
+    model = (model_name or "").lower()
+    kind = (model_type or "").lower()
+    if "seedream" in model or "seededit" in model or "qwen-image" in model or kind in {"image", "audio"}:
+        return "image"
+    if "seed-" in model or "seed_" in model or "vl" in model or kind == "vision":
+        return "responses"
+    return "chat"
+
+
+def _call_type_from_params(params: dict | None, model_name: str | None = None, model_type: str | None = None) -> str:
+    data = params or {}
+    return _normalize_call_type(data.get("call_type") or data.get("task_type"), model_name, model_type)
+
+
+def _public_params(params: dict | None) -> dict:
+    return {key: value for key, value in dict(params or {}).items() if key not in CALL_TYPE_PARAM_KEYS}
 
 
 def _ensure_permission(db: Session, app: App, alias: str, env: str) -> None:
@@ -58,8 +83,9 @@ def _build_config(db: Session, alias_row: ModelAlias) -> dict:
         "provider": {"code": provider.code, "name": provider.name, "protocol": provider.protocol},
         "base_url": provider.base_url,
         "model": model.model_name,
+        "call_type": _call_type_from_params(alias_row.default_params, model.model_name, model.model_type),
         "api_key": api_key,
-        "params": alias_row.default_params or {},
+        "params": _public_params(alias_row.default_params),
         "version": alias_row.version,
         "updated_at": alias_row.updated_at.isoformat() if alias_row.updated_at else None,
     }

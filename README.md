@@ -116,35 +116,25 @@ client = llm.openai()
 print(llm.model)
 ```
 
-配置项「默认参数 JSON」建议写两个字段：
+配置项里直接选择「调用类型」。Runtime API 会返回顶层字段 `call_type`：
 
 ```json
 {
-  "provider": "volcengine",
-  "task_type": "chat",
-  "temperature": 0.7,
-  "max_tokens": 4096
+  "call_type": "chat",
+  "params": {
+    "temperature": 0.7,
+    "max_tokens": 4096
+  }
 }
 ```
 
-`provider` 先覆盖这三个常用供应商：
+`call_type` 按真实接口分：
 
-| provider | 说明 |
-| --- | --- |
-| `yunwu` | 云雾，按 OpenAI-compatible 调用 |
-| `volcengine` | 火山引擎/方舟，支持 seed 文本/VLM、seedream 图片 |
-| `bailian` | 阿里云百炼，支持 qwen 文本、qwen-vl、qwen-long 文件理解 |
-
-`task_type` 按真实接口分：
-
-| task_type | 调用方式 |
+| call_type | 调用方式 |
 | --- | --- |
 | `chat` | `client.chat.completions.create` |
 | `responses` | `client.responses.create`，适合火山 seed 多模态 |
-| `text_to_image` | `client.images.generate` 文生图 |
-| `image_to_image` | `client.images.generate`，通过 `extra_body.image` 传参考图 |
-| `image_edit` | `client.images.generate`，通过 `extra_body.image` 传待编辑图 |
-| `raw` | 只返回原生 OpenAI 客户端，业务侧自己调用 |
+| `image` | `client.images.generate`，适合火山 seedream 文生图、图生图、图像编辑 |
 
 云雾、百炼文本、普通 OpenAI-compatible 文本：
 
@@ -221,8 +211,6 @@ print(response.model_dump_json())
 
 ```json
 {
-  "provider": "volcengine",
-  "task_type": "text_to_image",
   "size": "2K",
   "watermark": false
 }
@@ -231,10 +219,7 @@ print(response.model_dump_json())
 百炼 qwen-plus/qwen-vl/qwen-long 配置项默认参数示例：
 
 ```json
-{
-  "provider": "bailian",
-  "task_type": "chat"
-}
+{}
 ```
 
 直接运行测试函数：

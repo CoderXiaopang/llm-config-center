@@ -357,6 +357,46 @@ def test_config_item_base_url_update_does_not_affect_other_items(client, admin_h
     assert second_runtime.json()["base_url"] == "https://second.example.com/v1"
 
 
+def test_config_item_call_type_is_returned_outside_params(client, admin_headers):
+    created = unwrap(
+        client.post(
+            "/api/v1/admin/config-items",
+            headers=admin_headers,
+            json={
+                "alias": "seedream-image",
+                "env": "prod",
+                "provider_code": "volcengine",
+                "provider_name": "火山引擎",
+                "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+                "api_key": "sk-image-secret",
+                "model_name": "doubao-seedream-5-0-260128",
+                "model_type": "image",
+                "call_type": "image",
+                "default_params": {"size": "2K", "response_format": "url", "watermark": True},
+                "app_code": "image-client",
+                "app_name": "图片客户端",
+                "access_key_name": "image-key",
+            },
+        )
+    )
+    assert created["call_type"] == "image"
+    assert "call_type" not in created["params"]
+
+    listed = unwrap(client.get("/api/v1/admin/config-items", headers=admin_headers))
+    item = next(row for row in listed if row["alias"] == "seedream-image")
+    assert item["call_type"] == "image"
+    assert "call_type" not in item["params"]
+
+    runtime = client.get(
+        "/api/v1/runtime/configs/seedream-image?env=prod",
+        headers={"Authorization": f"Bearer {created['access_key']}"},
+    )
+    assert runtime.status_code == 200, runtime.text
+    payload = runtime.json()
+    assert payload["call_type"] == "image"
+    assert payload["params"] == {"size": "2K", "response_format": "url", "watermark": True}
+
+
 def test_runtime_reports_api_key_decrypt_failure(client, admin_headers):
     created = unwrap(
         client.post(

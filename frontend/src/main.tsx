@@ -16,6 +16,12 @@ const menuItems = [
   { key: "users", icon: <UsersRound size={17} />, label: "用户管理" }
 ];
 
+const callTypeOptions = [
+  { label: "文本对话", value: "chat" },
+  { label: "Responses 多模态", value: "responses" },
+  { label: "图片生成/编辑", value: "image" }
+];
+
 function statusTag(status?: string) {
   return <Tag color={status === "enabled" ? "green" : "red"}>{status === "enabled" ? "启用" : "禁用"}</Tag>;
 }
@@ -412,6 +418,7 @@ function ConfigItemPage() {
       provider_code: "openai",
       provider_name: "OpenAI Compatible",
       model_type: "chat",
+      call_type: "chat",
       app_code: "default-client",
       app_name: "默认客户端",
       access_key_name: "默认访问密钥",
@@ -431,6 +438,7 @@ function ConfigItemPage() {
       base_url: row.base_url,
       model_name: row.model_name,
       model_type: row.model_type,
+      call_type: row.call_type || "chat",
       api_key: undefined,
       default_params: JSON.stringify(row.params || {}, null, 2),
       app_code: row.app_code || "default-client",
@@ -458,6 +466,7 @@ function ConfigItemPage() {
           { title: "环境", dataIndex: "env", width: 90 },
           { title: "供应商", dataIndex: "provider_name" },
           { title: "模型", dataIndex: "model_name" },
+          { title: "调用类型", dataIndex: "call_type", width: 130, render: (value) => callTypeOptions.find((item) => item.value === value)?.label || value },
           { title: "Base URL", dataIndex: "base_url", ellipsis: true },
           {
             title: "访问密钥",
@@ -500,6 +509,9 @@ function ConfigItemPage() {
             </Form.Item>
             <Form.Item label="模型类型" name="model_type" rules={[{ required: true, message: "请选择模型类型" }]}>
               <Select options={["chat", "vision", "embedding", "rerank", "image", "audio"].map((value) => ({ label: value, value }))} />
+            </Form.Item>
+            <Form.Item label="调用类型" name="call_type" rules={[{ required: true, message: "请选择调用类型" }]}>
+              <Select options={callTypeOptions} />
             </Form.Item>
           </div>
           <Form.Item label="上游 API Key" name="api_key" rules={[{ required: !editing, message: "请输入上游 API Key" }]}>

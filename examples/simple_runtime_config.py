@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 
-TaskType = Literal["chat", "responses", "text_to_image", "image_to_image", "image_edit", "raw"]
-INTERNAL_PARAM_KEYS = {"provider", "task_type"}
+TaskType = Literal["chat", "responses", "image", "raw"]
+INTERNAL_PARAM_KEYS = {"provider", "call_type", "task_type"}
 SUPPORTED_PROVIDERS = {"yunwu", "volcengine", "bailian", "openai_compatible"}
 IMAGE_EXTRA_BODY_KEYS = {"image", "watermark", "sequential_image_generation"}
 CHAT_PARAM_KEYS = {
@@ -128,10 +128,11 @@ class LLMConfigOpenAI:
             timeout=timeout,
         )
         self.model = self.config["model"]
+        self.call_type = self.config.get("call_type") or self._detect_task_type()
         self.default_params = self.config.get("params", {})
         self.client = self._create_openai_client()
         self.provider = self._detect_provider()
-        self.task_type = self._detect_task_type()
+        self.task_type = self.call_type
 
     def _create_openai_client(self):
         try:
@@ -162,16 +163,18 @@ class LLMConfigOpenAI:
         return "openai_compatible"
 
     def _detect_task_type(self) -> TaskType:
-        configured = self.default_params.get("task_type")
-        if configured in {"chat", "responses", "text_to_image", "image_to_image", "image_edit", "raw"}:
+        configured = self.config.get("call_type") or self.default_params.get("call_type") or self.default_params.get("task_type")
+        if configured == "text_to_image" or configured == "image_to_image" or configured == "image_edit":
+            return "image"
+        if configured in {"chat", "responses", "image", "raw"}:
             return configured
         model_name = self.model.lower()
         if "seed-" in model_name or "seed_" in model_name or "vl" in model_name:
             return "responses" if self.provider == "volcengine" else "chat"
         if "seededit" in model_name:
-            return "image_edit"
+            return "image"
         if "seedream" in model_name or "qwen-image" in model_name or "wanx" in model_name:
-            return "text_to_image"
+            return "image"
         return "chat"
 
     def _request_params(self, overrides: dict[str, Any]) -> dict[str, Any]:
@@ -276,11 +279,11 @@ class LLMConfigOpenAI:
             return self.create_chat_completion(chat_messages, **kwargs)
         if self.task_type == "responses":
             return self.create_vision_response(prompt or "", images, **kwargs) if images else self.create_response(prompt or "", **kwargs)
-        if self.task_type in {"text_to_image", "image_to_image", "image_edit"}:
+        if self.task_type == "image":
             if not prompt:
                 raise ValueError("图片任务必须传 prompt")
             return self.create_image(prompt=prompt, images=images, **kwargs)
-        raise ValueError("task_type=raw 时请使用 openai() 原生客户端自行调用")
+        raise ValueError("call_type=raw 时请使用 openai() 原生客户端自行调用")
 
     @staticmethod
     def image_urls(response: Any) -> list[str]:
@@ -314,7 +317,7 @@ def main() -> None:
     print("client:", client.__class__.__name__)
     print("model:", llm.model)
     print("provider:", llm.provider)
-    print("task_type:", llm.task_type)
+    print("call_type:", llm.call_type)
     print("params:", json.dumps(llm.default_params, ensure_ascii=False))
 
     if llm.task_type == "chat":
@@ -323,9 +326,11 @@ def main() -> None:
     elif llm.task_type == "responses":
         response = llm.run(prompt="你好", stream=False)
         print("response:", response)
-    else:
+    elif llm.task_type == "image":
         response = llm.run(prompt="一只橘猫坐在白色桌面上，商业摄影风格")
         print("image_urls:", llm.image_urls(response))
+    else:
+        print("raw client:", client)
 
 
 if __name__ == "__main__":

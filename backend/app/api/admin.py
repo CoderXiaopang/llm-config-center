@@ -41,6 +41,8 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+CALL_TYPES = {"chat", "responses", "image"}
+CALL_TYPE_PARAM_KEYS = {"call_type", "task_type"}
 
 
 def ok(data: Any, message: str = "ok") -> dict:
@@ -81,6 +83,35 @@ def _provider_display_code(provider: Provider) -> str:
     return provider.code
 
 
+def _normalize_call_type(value: str | None, model_name: str | None = None, model_type: str | None = None) -> str:
+    if value == "text_to_image" or value == "image_to_image" or value == "image_edit":
+        return "image"
+    if value in CALL_TYPES:
+        return value
+    model = (model_name or "").lower()
+    kind = (model_type or "").lower()
+    if "seedream" in model or "seededit" in model or "qwen-image" in model or kind in {"image", "audio"}:
+        return "image"
+    if "seed-" in model or "seed_" in model or "vl" in model or kind == "vision":
+        return "responses"
+    return "chat"
+
+
+def _params_with_call_type(params: dict | None, call_type: str, model_name: str | None = None, model_type: str | None = None) -> dict:
+    data = dict(params or {})
+    data["call_type"] = _normalize_call_type(call_type, model_name, model_type)
+    return data
+
+
+def _call_type_from_params(params: dict | None, model_name: str | None = None, model_type: str | None = None) -> str:
+    data = params or {}
+    return _normalize_call_type(data.get("call_type") or data.get("task_type"), model_name, model_type)
+
+
+def _public_params(params: dict | None) -> dict:
+    return {key: value for key, value in dict(params or {}).items() if key not in CALL_TYPE_PARAM_KEYS}
+
+
 def _config_item_payload(
     alias: ModelAlias,
     model: LLMModel,
@@ -98,8 +129,9 @@ def _config_item_payload(
         base_url=provider.base_url,
         model_name=model.model_name,
         model_type=model.model_type,
+        call_type=_call_type_from_params(alias.default_params, model.model_name, model.model_type),
         key_mask=provider_key.key_mask,
-        params=alias.default_params or {},
+        params=_public_params(alias.default_params),
         status=alias.status,
         version=alias.version,
         app_code=app_code,
@@ -321,7 +353,7 @@ def create_config_item(payload: ConfigItemIn, db: Session = Depends(get_db), use
             env=payload.env,
             model_id=model.id,
             provider_api_key_id=provider_key.id,
-            default_params=payload.default_params or {},
+            default_params=_params_with_call_type(payload.default_params, payload.call_type, payload.model_name, payload.model_type),
             status=payload.status,
             description=payload.description,
             created_by=user.id,
@@ -331,7 +363,7 @@ def create_config_item(payload: ConfigItemIn, db: Session = Depends(get_db), use
     else:
         alias.model_id = model.id
         alias.provider_api_key_id = provider_key.id
-        alias.default_params = payload.default_params or {}
+        alias.default_params = _params_with_call_type(payload.default_params, payload.call_type, payload.model_name, payload.model_type)
         alias.status = payload.status
         alias.description = payload.description
         alias.version += 1
@@ -419,7 +451,7 @@ def update_config_item(alias_id: int, payload: ConfigItemIn, db: Session = Depen
     alias.env = payload.env
     alias.model_id = model.id
     alias.provider_api_key_id = provider_key.id
-    alias.default_params = payload.default_params or {}
+    alias.default_params = _params_with_call_type(payload.default_params, payload.call_type, payload.model_name, payload.model_type)
     alias.status = payload.status
     alias.description = payload.description
     alias.version += 1
