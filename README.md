@@ -116,16 +116,17 @@ client = llm.openai()
 print(llm.model)
 ```
 
-直接发起 Chat Completion：
+如果调用 Chat Completions，可以用便捷方法自动带上配置中心里的 `model` 和默认参数：
 
 ```python
-response = llm.chat([
-    {"role": "user", "content": "你好"}
-])
+response = llm.create_chat_completion(
+    [{"role": "user", "content": "你好"}],
+    stream=False,
+)
 print(response.choices[0].message.content)
 ```
 
-如果你想使用原生 OpenAI 对象：
+如果你想使用原生 OpenAI 对象，直接拿 `client` 自己调任何兼容接口：
 
 ```python
 client.chat.completions.create(
@@ -133,6 +134,9 @@ client.chat.completions.create(
     messages=[{"role": "user", "content": "你好"}],
     **llm.default_params,
 )
+
+# 如果你的上游服务支持 Responses API，也可以自己这样调：
+# client.responses.create(model=llm.model, input="你好")
 ```
 
 直接运行测试函数：

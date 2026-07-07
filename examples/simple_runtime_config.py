@@ -63,7 +63,7 @@ class LLMConfigOpenAI:
     def __call__(self):
         return self.client
 
-    def chat(self, messages: list[dict[str, Any]], **kwargs: Any):
+    def create_chat_completion(self, messages: list[dict[str, Any]], **kwargs: Any):
         request_params = {**self.default_params, **kwargs}
         return self.client.chat.completions.create(
             model=self.model,
@@ -83,6 +83,12 @@ def main() -> None:
     print("client:", client.__class__.__name__)
     print("model:", llm.model)
     print("params:", json.dumps(llm.default_params, ensure_ascii=False))
+
+    response = llm.create_chat_completion(
+        [{"role": "user", "content": "你好"}],
+        stream=False,
+    )
+    print("answer:", response.choices[0].message.content)
 
 
 if __name__ == "__main__":
