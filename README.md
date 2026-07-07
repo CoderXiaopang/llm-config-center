@@ -82,9 +82,21 @@ curl -X GET "http://localhost:8000/api/v1/runtime/configs/chat-default?env=prod"
 
 ## Python SDK
 
+Python SDK 目录：
+
+```text
+sdk/python
+```
+
+详细说明见：[sdk/python/README.md](/Users/quxiaopang/Documents/LLMCOMFIG/sdk/python/README.md)
+
+安装：
+
 ```bash
 pip install -e sdk/python
 ```
+
+基础用法：
 
 ```python
 from llm_config_sdk import LLMConfigClient
@@ -100,6 +112,8 @@ print(config.model, config.base_url)
 
 openai_client, model = client.create_openai_client("chat-default")
 ```
+
+可运行示例见：[basic_usage.py](/Users/quxiaopang/Documents/LLMCOMFIG/sdk/python/examples/basic_usage.py)
 
 ## 本地测试
 
@@ -124,4 +138,3 @@ cd frontend
 npm install
 npm run build
 ```
-
