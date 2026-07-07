@@ -122,3 +122,40 @@ class PermissionOut(PermissionIn, ORMModel):
     id: int
     app_id: int
     created_at: datetime | None = None
+
+
+class ConfigItemIn(BaseModel):
+    alias: str
+    env: str = "prod"
+    provider_code: str
+    provider_name: str
+    base_url: str
+    api_key: str
+    model_name: str
+    model_type: str = "chat"
+    default_params: dict[str, Any] | None = None
+    app_code: str = "default-client"
+    app_name: str = "默认客户端"
+    access_key_name: str = "默认访问密钥"
+    create_access_key: bool = True
+    status: str = "enabled"
+    description: str | None = None
+
+
+class ConfigItemOut(ORMModel):
+    id: int
+    alias: str
+    env: str
+    provider_code: str
+    provider_name: str
+    base_url: str
+    model_name: str
+    model_type: str
+    key_mask: str | None = None
+    params: dict[str, Any]
+    status: str
+    version: int
+    app_code: str | None = None
+    access_key: str | None = None
+    sdk_example: str | None = None
+    updated_at: datetime | None = None

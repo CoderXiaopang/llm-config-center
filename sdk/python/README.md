@@ -8,6 +8,24 @@
 - 配置中心切换上游 API Key、模型名或 `base_url` 后，业务服务无需改代码。
 - 本地初始化 OpenAI-compatible Client，业务服务仍然直连真实模型供应商。
 
+## 后台如何创建 SDK 所需配置
+
+推荐走后台的简单入口：
+
+1. 打开「配置项」。
+2. 点击「新增配置项」。
+3. 一次填完 `Alias`、`Base URL`、真实模型名、上游 `API Key`、默认参数、客户端编码。
+4. 保存后弹窗会展示 SDK 需要的 `access_key`、`alias` 和示例代码。
+
+客户端初始化只需要：
+
+```text
+server_url：配置中心后端地址
+access_key：弹窗里展示的一次性访问密钥
+env：环境，默认 prod
+alias：配置项里的 Alias
+```
+
 ## 安装
 
 开发期从仓库本地安装：
@@ -233,4 +251,3 @@ if __name__ == "__main__":
 cd sdk/python
 PYTHONPATH=$PWD pytest -q
 ```
-

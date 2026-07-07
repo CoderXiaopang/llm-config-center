@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import { App as AntApp, Button, Card, ConfigProvider, Form, Input, InputNumber, Layout, Menu, Modal, Popconfirm, Select, Space, Statistic, Table, Tag, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
-import { AppWindow, Boxes, ClipboardList, Database, FileKey, History, KeyRound, Layers, LayoutDashboard, LogOut, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { AppWindow, Boxes, ClipboardList, Database, FileKey, History, KeyRound, Layers, LayoutDashboard, LogOut, PlusCircle, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { api, pickData } from "./api/client";
 import "./styles.css";
 
@@ -12,6 +12,7 @@ type Entity = Record<string, any>;
 const { Sider, Header, Content } = Layout;
 
 const menuItems = [
+  { key: "config-items", icon: <PlusCircle size={17} />, label: "配置项" },
   { key: "dashboard", icon: <LayoutDashboard size={17} />, label: "总览" },
   { key: "providers", icon: <Database size={17} />, label: "供应商管理" },
   { key: "provider-api-keys", icon: <KeyRound size={17} />, label: "上游 API Key" },
@@ -67,7 +68,8 @@ function LoginPage() {
 }
 
 function AppShell() {
-  const [page, setPage] = useState(localStorage.getItem("current_page") || "dashboard");
+  const savedPage = localStorage.getItem("current_page") || "config-items";
+  const [page, setPage] = useState(menuItems.some((item) => item.key === savedPage) ? savedPage : "config-items");
   const user = localStorage.getItem("admin_user") || "管理员";
 
   useEffect(() => {
@@ -119,6 +121,7 @@ function AppShell() {
 }
 
 function renderPage(page: string) {
+  if (page === "config-items") return <ConfigItemPage />;
   if (page === "dashboard") return <Dashboard />;
   if (page === "providers") return <ProviderPage />;
   if (page === "provider-api-keys") return <ProviderKeyPage />;
@@ -128,6 +131,153 @@ function renderPage(page: string) {
   if (page === "access-keys") return <AccessKeyPage />;
   if (page === "permissions") return <PermissionPage />;
   return <AuditPage />;
+}
+
+function ConfigItemPage() {
+  const [rows, setRows] = useState<Entity[]>([]);
+  const [open, setOpen] = useState(false);
+  const [form] = Form.useForm();
+
+  async function load() {
+    setRows(pickData<Entity[]>(await api.get("/config-items")));
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  function showResult(data: Entity) {
+    Modal.success({
+      title: "配置项已创建，可以直接给客户端使用",
+      width: 760,
+      okText: "我已保存",
+      content: (
+        <Space direction="vertical" className="full" size={12}>
+          <Typography.Text>客户端只需要下面三个值：</Typography.Text>
+          <Input addonBefore="Alias" value={data.alias} readOnly />
+          <Input addonBefore="环境" value={data.env} readOnly />
+          <Input.TextArea value={data.access_key || "本次未创建新的 Access Key"} rows={3} readOnly />
+          <Typography.Text>Python SDK 示例：</Typography.Text>
+          <Input.TextArea value={data.sdk_example || ""} rows={8} readOnly />
+        </Space>
+      )
+    });
+  }
+
+  async function createItem() {
+    const raw = await form.validateFields();
+    let params = {};
+    try {
+      params = raw.default_params ? JSON.parse(raw.default_params) : {};
+    } catch {
+      message.error("默认参数 JSON 格式不正确");
+      return;
+    }
+
+    const payload = {
+      ...raw,
+      default_params: params,
+      create_access_key: true,
+      status: "enabled"
+    };
+    try {
+      const data = pickData<Entity>(await api.post("/config-items", payload));
+      message.success("配置项已创建");
+      setOpen(false);
+      form.resetFields();
+      showResult(data);
+      load();
+    } catch (error: any) {
+      message.error(error.response?.data?.message || "创建失败");
+    }
+  }
+
+  function startCreate() {
+    form.setFieldsValue({
+      env: "prod",
+      provider_code: "openai",
+      provider_name: "OpenAI Compatible",
+      model_type: "chat",
+      app_code: "default-client",
+      app_name: "默认客户端",
+      access_key_name: "默认访问密钥",
+      default_params: JSON.stringify({ temperature: 0.7, max_tokens: 4096, timeout: 60, stream: true }, null, 2)
+    });
+    setOpen(true);
+  }
+
+  return (
+    <Card
+      title="配置项"
+      extra={<Button type="primary" icon={<PlusCircle size={16} />} onClick={startCreate}>新增配置项</Button>}
+    >
+      <Typography.Paragraph className="page-hint">
+        这里是最简单的入口：一次填完客户端初始化需要的 Alias、Base URL、模型名、API Key 和默认参数。系统会自动处理供应商、模型、权限和访问密钥。
+      </Typography.Paragraph>
+      <Table
+        rowKey="id"
+        dataSource={rows}
+        pagination={{ pageSize: 10 }}
+        columns={[
+          { title: "Alias", dataIndex: "alias" },
+          { title: "环境", dataIndex: "env", width: 90 },
+          { title: "供应商", dataIndex: "provider_name" },
+          { title: "模型", dataIndex: "model_name" },
+          { title: "Base URL", dataIndex: "base_url", ellipsis: true },
+          { title: "Key", dataIndex: "key_mask" },
+          { title: "客户端", dataIndex: "app_code" },
+          { title: "版本", dataIndex: "version", width: 80 },
+          { title: "状态", dataIndex: "status", render: statusTag, width: 90 }
+        ]}
+      />
+      <Modal title="新增配置项" open={open} onOk={createItem} onCancel={() => setOpen(false)} okText="创建配置项" cancelText="取消" width={760}>
+        <Form form={form} layout="vertical">
+          <div className="form-grid">
+            <Form.Item label="Alias（业务代码使用的名称）" name="alias" rules={[{ required: true, message: "请输入 Alias" }]}>
+              <Input placeholder="例如 chat-default" />
+            </Form.Item>
+            <Form.Item label="环境" name="env" rules={[{ required: true, message: "请输入环境" }]}>
+              <Input placeholder="prod" />
+            </Form.Item>
+            <Form.Item label="供应商编码" name="provider_code" rules={[{ required: true, message: "请输入供应商编码" }]}>
+              <Input placeholder="例如 volcengine / dashscope / openai" />
+            </Form.Item>
+            <Form.Item label="供应商名称" name="provider_name" rules={[{ required: true, message: "请输入供应商名称" }]}>
+              <Input placeholder="例如 火山引擎" />
+            </Form.Item>
+          </div>
+          <Form.Item label="Base URL" name="base_url" rules={[{ required: true, message: "请输入 Base URL" }]}>
+            <Input placeholder="例如 https://ark.cn-beijing.volces.com/api/v3" />
+          </Form.Item>
+          <div className="form-grid">
+            <Form.Item label="真实模型名" name="model_name" rules={[{ required: true, message: "请输入真实模型名" }]}>
+              <Input placeholder="例如 doubao-seed-1.6 / qwen-plus" />
+            </Form.Item>
+            <Form.Item label="模型类型" name="model_type" rules={[{ required: true, message: "请选择模型类型" }]}>
+              <Select options={["chat", "vision", "embedding", "rerank", "image", "audio"].map((value) => ({ label: value, value }))} />
+            </Form.Item>
+          </div>
+          <Form.Item label="上游 API Key" name="api_key" rules={[{ required: true, message: "请输入上游 API Key" }]}>
+            <Input.Password placeholder="这里填真实模型供应商的 API Key，数据库会加密保存" />
+          </Form.Item>
+          <Form.Item label="默认参数 JSON" name="default_params">
+            <Input.TextArea rows={6} />
+          </Form.Item>
+          <div className="form-grid">
+            <Form.Item label="客户端编码" name="app_code" rules={[{ required: true, message: "请输入客户端编码" }]}>
+              <Input placeholder="例如 requirement-api" />
+            </Form.Item>
+            <Form.Item label="客户端名称" name="app_name" rules={[{ required: true, message: "请输入客户端名称" }]}>
+              <Input placeholder="例如 需求提取服务" />
+            </Form.Item>
+          </div>
+          <Form.Item label="访问密钥名称" name="access_key_name" rules={[{ required: true, message: "请输入访问密钥名称" }]}>
+            <Input placeholder="例如 requirement-api-prod-key" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </Card>
+  );
 }
 
 function Dashboard() {

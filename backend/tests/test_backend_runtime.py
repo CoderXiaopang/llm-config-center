@@ -198,3 +198,43 @@ def test_alias_disabled_and_alias_update_bump_version(client, admin_headers):
     disabled = client.get("/api/v1/runtime/configs/chat-default?env=prod", headers=runtime_headers)
     assert disabled.status_code == 409
 
+
+def test_simple_config_item_creates_runtime_ready_config(client, admin_headers):
+    created = unwrap(
+        client.post(
+            "/api/v1/admin/config-items",
+            headers=admin_headers,
+            json={
+                "alias": "chat-simple",
+                "env": "prod",
+                "provider_code": "volcengine",
+                "provider_name": "火山引擎",
+                "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+                "api_key": "sk-simple-secret",
+                "model_name": "doubao-seed-1.6",
+                "model_type": "chat",
+                "default_params": {"temperature": 0.5, "max_tokens": 2048},
+                "app_code": "simple-client",
+                "app_name": "简单客户端",
+                "access_key_name": "simple-client-key",
+            },
+        )
+    )
+    assert created["alias"] == "chat-simple"
+    assert created["access_key"].startswith("lcg_ak_")
+    assert "client.get_config(\"chat-simple\")" in created["sdk_example"]
+
+    listed = unwrap(client.get("/api/v1/admin/config-items", headers=admin_headers))
+    assert listed[0]["alias"] == "chat-simple"
+    assert listed[0]["key_mask"] == "sk-****cret"
+    assert "access_key" not in listed[0] or listed[0]["access_key"] is None
+
+    runtime = client.get(
+        "/api/v1/runtime/configs/chat-simple?env=prod",
+        headers={"Authorization": f"Bearer {created['access_key']}"},
+    )
+    assert runtime.status_code == 200, runtime.text
+    payload = runtime.json()
+    assert payload["model"] == "doubao-seed-1.6"
+    assert payload["api_key"] == "sk-simple-secret"
+    assert payload["params"]["max_tokens"] == 2048

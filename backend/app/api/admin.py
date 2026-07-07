@@ -20,6 +20,8 @@ from app.schemas import (
     AliasOut,
     AppIn,
     AppOut,
+    ConfigItemIn,
+    ConfigItemOut,
     LoginRequest,
     ModelIn,
     ModelOut,
@@ -36,6 +38,49 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 def ok(data: Any, message: str = "ok") -> dict:
     return {"success": True, "data": data, "message": message}
+
+
+def _sdk_example(access_key: str, alias: str, env: str) -> str:
+    return "\n".join(
+        [
+            "from llm_config_sdk import LLMConfigClient",
+            "",
+            "client = LLMConfigClient(",
+            '    server_url="http://localhost:8000",',
+            f'    access_key="{access_key}",',
+            f'    env="{env}",',
+            ")",
+            f'config = client.get_config("{alias}")',
+        ]
+    )
+
+
+def _config_item_payload(
+    alias: ModelAlias,
+    model: LLMModel,
+    provider: Provider,
+    provider_key: ProviderApiKey,
+    app_code: str | None = None,
+    access_key: str | None = None,
+) -> dict:
+    return ConfigItemOut(
+        id=alias.id,
+        alias=alias.alias,
+        env=alias.env,
+        provider_code=provider.code,
+        provider_name=provider.name,
+        base_url=provider.base_url,
+        model_name=model.model_name,
+        model_type=model.model_type,
+        key_mask=provider_key.key_mask,
+        params=alias.default_params or {},
+        status=alias.status,
+        version=alias.version,
+        app_code=app_code,
+        access_key=access_key,
+        sdk_example=_sdk_example(access_key, alias.alias, alias.env) if access_key else None,
+        updated_at=alias.updated_at,
+    ).model_dump(mode="json")
 
 
 @router.post("/auth/login")
@@ -73,6 +118,140 @@ def dashboard(db: Session = Depends(get_db), _: User = Depends(get_current_user)
             "config_version": prod_version.version if prod_version else 1,
         }
     )
+
+
+@router.get("/config-items")
+def list_config_items(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    rows = db.execute(
+        select(ModelAlias, LLMModel, Provider, ProviderApiKey)
+        .join(LLMModel, ModelAlias.model_id == LLMModel.id)
+        .join(Provider, LLMModel.provider_id == Provider.id)
+        .join(ProviderApiKey, ModelAlias.provider_api_key_id == ProviderApiKey.id)
+        .order_by(ModelAlias.id.desc())
+    ).all()
+    permissions = db.scalars(select(AppPermission)).all()
+    app_ids = {permission.alias: permission.app_id for permission in permissions}
+    apps = {app.id: app.app_code for app in db.scalars(select(App)).all()}
+    return ok(
+        [
+            _config_item_payload(alias, model, provider, provider_key, apps.get(app_ids.get(alias.alias)))
+            for alias, model, provider, provider_key in rows
+        ]
+    )
+
+
+@router.post("/config-items")
+def create_config_item(payload: ConfigItemIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    provider = db.scalar(select(Provider).where(Provider.code == payload.provider_code))
+    if provider is None:
+        provider = Provider(
+            code=payload.provider_code,
+            name=payload.provider_name,
+            protocol="openai_compatible",
+            base_url=payload.base_url,
+            status="enabled",
+            description=f"由配置项 {payload.alias} 自动创建",
+        )
+        db.add(provider)
+        db.flush()
+    else:
+        provider.name = payload.provider_name
+        provider.base_url = payload.base_url
+        provider.status = "enabled"
+
+    model = db.scalar(select(LLMModel).where(LLMModel.provider_id == provider.id, LLMModel.model_name == payload.model_name))
+    if model is None:
+        model = LLMModel(
+            provider_id=provider.id,
+            model_name=payload.model_name,
+            display_name=payload.model_name,
+            model_type=payload.model_type,
+            status="enabled",
+        )
+        db.add(model)
+        db.flush()
+    else:
+        model.model_type = payload.model_type
+        model.status = "enabled"
+
+    provider_key = ProviderApiKey(
+        provider_id=provider.id,
+        name=f"{payload.alias} 上游 Key",
+        encrypted_api_key=encrypt_api_key(payload.api_key),
+        key_mask=mask_secret(payload.api_key),
+        status="enabled",
+        priority=100,
+        created_by=user.id,
+    )
+    db.add(provider_key)
+    db.flush()
+
+    alias = db.scalar(select(ModelAlias).where(ModelAlias.alias == payload.alias, ModelAlias.env == payload.env))
+    if alias is None:
+        alias = ModelAlias(
+            alias=payload.alias,
+            env=payload.env,
+            model_id=model.id,
+            provider_api_key_id=provider_key.id,
+            default_params=payload.default_params or {},
+            status=payload.status,
+            description=payload.description,
+            created_by=user.id,
+        )
+        db.add(alias)
+        db.flush()
+    else:
+        alias.model_id = model.id
+        alias.provider_api_key_id = provider_key.id
+        alias.default_params = payload.default_params or {}
+        alias.status = payload.status
+        alias.description = payload.description
+        alias.version += 1
+    bump_config_version(db, payload.env)
+
+    app = db.scalar(select(App).where(App.app_code == payload.app_code))
+    if app is None:
+        app = App(app_code=payload.app_code, app_name=payload.app_name, status="enabled", created_by=user.id)
+        db.add(app)
+        db.flush()
+    else:
+        app.app_name = payload.app_name
+        app.status = "enabled"
+
+    permission = db.scalar(select(AppPermission).where(AppPermission.app_id == app.id, AppPermission.alias == payload.alias, AppPermission.env == payload.env))
+    if permission is None:
+        permission = AppPermission(app_id=app.id, alias=payload.alias, env=payload.env, can_read_config=True, created_by=user.id)
+        db.add(permission)
+        db.flush()
+        bump_config_version(db, payload.env)
+    else:
+        permission.can_read_config = True
+
+    full_access_key = None
+    if payload.create_access_key:
+        prefix, secret, full_access_key = generate_access_key()
+        db.add(
+            AppAccessKey(
+                app_id=app.id,
+                name=payload.access_key_name,
+                key_prefix=prefix,
+                key_hash=hash_access_key_secret(secret),
+                status="enabled",
+                created_by=user.id,
+            )
+        )
+        db.flush()
+
+    write_audit(
+        db,
+        action="create_config_item",
+        resource_type="config_item",
+        resource_id=alias.id,
+        user_id=user.id,
+        after_data=payload.model_dump(),
+    )
+    db.commit()
+    return ok(_config_item_payload(alias, model, provider, provider_key, app.app_code, full_access_key))
 
 
 @router.post("/providers")
