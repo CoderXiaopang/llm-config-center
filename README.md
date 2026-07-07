@@ -97,33 +97,42 @@ curl -X GET "http://localhost:8001/api/v1/runtime/configs/seed5?env=prod" \
 }
 ```
 
-## Python 函数接入
+## Python 类接入
 
-业务项目不需要安装 SDK，直接复制 [examples/simple_runtime_config.py](examples/simple_runtime_config.py) 里的 `get_llm_config()` 函数即可。
+业务项目不需要安装 SDK，直接复制 [examples/simple_runtime_config.py](examples/simple_runtime_config.py) 里的 `LLMConfigOpenAI` 类即可。
 
 最小用法：
 
 ```python
-from simple_runtime_config import get_llm_config
+from simple_runtime_config import LLMConfigOpenAI
 
-config = get_llm_config(
-    alias="seed5",
+llm = LLMConfigOpenAI(
     access_key="<access_key>",
+    alias="seed5",
     server_url="http://localhost:8001",
 )
 
-print(config["base_url"])
-print(config["model"])
+client = llm.openai()
+print(llm.model)
 ```
 
-如果要初始化 OpenAI-compatible 客户端：
+直接发起 Chat Completion：
 
 ```python
-from openai import OpenAI
+response = llm.chat([
+    {"role": "user", "content": "你好"}
+])
+print(response.choices[0].message.content)
+```
 
-config = get_llm_config("seed5", "<access_key>", "http://localhost:8001")
-client = OpenAI(base_url=config["base_url"], api_key=config["api_key"])
-model = config["model"]
+如果你想使用原生 OpenAI 对象：
+
+```python
+client.chat.completions.create(
+    model=llm.model,
+    messages=[{"role": "user", "content": "你好"}],
+    **llm.default_params,
+)
 ```
 
 直接运行测试函数：
@@ -144,7 +153,7 @@ cd backend
 PYTHONPATH=$PWD pytest -q
 ```
 
-函数示例：
+类示例：
 
 ```bash
 python -m py_compile examples/simple_runtime_config.py
