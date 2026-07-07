@@ -27,7 +27,7 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_me_change_me_change_me_32}
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-1440}
-      LLM_CONFIG_MASTER_KEY: ${LLM_CONFIG_MASTER_KEY}
+      LLM_CONFIG_MASTER_KEY: ${LLM_CONFIG_MASTER_KEY:?请先在 .env 中配置 LLM_CONFIG_MASTER_KEY}
       ACCESS_KEY_HASH_SALT: ${ACCESS_KEY_HASH_SALT:-change_me_access_key_salt}
       INIT_ADMIN_USERNAME: ${INIT_ADMIN_USERNAME:-admin}
       INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:-admin123456}
@@ -39,7 +39,7 @@ services:
       redis:
         condition: service_started
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${BACKEND_PORT:-8001}:8000"
 
   frontend:
     build: ./frontend
@@ -50,4 +50,3 @@ services:
 
 volumes:
   postgres_data:
-

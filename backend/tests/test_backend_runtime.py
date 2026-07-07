@@ -270,3 +270,43 @@ def test_simple_config_item_creates_runtime_ready_config(client, admin_headers):
     )
     assert runtime_after_edit.status_code == 200, runtime_after_edit.text
     assert runtime_after_edit.json()["api_key"] == "sk-updated-secret"
+
+
+def test_runtime_reports_api_key_decrypt_failure(client, admin_headers):
+    created = unwrap(
+        client.post(
+            "/api/v1/admin/config-items",
+            headers=admin_headers,
+            json={
+                "alias": "broken-key",
+                "env": "prod",
+                "provider_code": "volcengine",
+                "provider_name": "火山引擎",
+                "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+                "api_key": "sk-simple-secret",
+                "model_name": "doubao-seed-1.6",
+                "model_type": "chat",
+                "default_params": {"temperature": 0.5},
+                "app_code": "broken-client",
+                "app_name": "异常客户端",
+                "access_key_name": "broken-client-key",
+            },
+        )
+    )
+
+    override_get_db = client.app.dependency_overrides[get_db]
+    db_iter = override_get_db()
+    db = next(db_iter)
+    try:
+        provider_key = db.scalar(select(ProviderApiKey))
+        provider_key.encrypted_api_key = "not-a-fernet-token"
+        db.commit()
+    finally:
+        db.close()
+
+    runtime = client.get(
+        "/api/v1/runtime/configs/broken-key?env=prod",
+        headers={"Authorization": f"Bearer {created['access_key']}"},
+    )
+    assert runtime.status_code == 500
+    assert runtime.json()["detail"] == "API_KEY_DECRYPT_FAILED"

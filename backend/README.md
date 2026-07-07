@@ -4,6 +4,15 @@
 
 ## 本地启动
 
+推荐使用根目录的 Docker Compose：
+
+```bash
+cd ..
+docker compose up -d --build
+```
+
+如果只单独启动后端：
+
 ```bash
 cd backend
 export PYTHONPATH=$PWD
