@@ -39,7 +39,7 @@ class LLMConfigClient:
         self.access_key = access_key
         self.env = env
         self.refresh_interval = refresh_interval
-        self.http = http_client or httpx.Client(timeout=timeout)
+        self.http = http_client or httpx.Client(timeout=timeout, trust_env=False)
         self.openai_factory = openai_factory
         self.cache = ConfigCache()
 
@@ -96,4 +96,3 @@ class LLMConfigClient:
     def create_openai_client(self, alias: str):
         config = self.get_config(alias)
         return self.openai_factory(base_url=config.base_url, api_key=config.api_key), config.model
-

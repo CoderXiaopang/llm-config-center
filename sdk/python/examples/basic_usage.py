@@ -1,15 +1,17 @@
+import os
+
 from llm_config_sdk import LLMConfigClient
 
 
 def main() -> None:
     client = LLMConfigClient(
-        server_url="http://localhost:8000",
-        access_key="请替换为后台创建的完整 access_key",
-        env="prod",
+        server_url=os.getenv("LLM_CONFIG_SERVER_URL", "http://localhost:8000"),
+        access_key=os.environ["LLM_CONFIG_ACCESS_KEY"],
+        env=os.getenv("LLM_CONFIG_ENV", "prod"),
         refresh_interval=60,
     )
 
-    config = client.get_config("chat-default")
+    config = client.get_config(os.getenv("LLM_CONFIG_ALIAS", "seed5"))
     print("Alias:", config.alias)
     print("环境:", config.env)
     print("供应商:", config.provider)
@@ -30,4 +32,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
