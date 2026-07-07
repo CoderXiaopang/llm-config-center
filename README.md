@@ -40,6 +40,14 @@ INIT_ADMIN_USERNAME=admin
 INIT_ADMIN_PASSWORD=admin123456
 ```
 
+数据会持久化到 Docker volume `postgres_data`，正常执行 `docker compose restart`、`docker compose up -d --build`、重启服务器都不会丢数据。
+
+不要执行下面这种带 `-v` 的命令，除非你就是想清空数据库：
+
+```bash
+docker compose down -v
+```
+
 ## 最小演示流程
 
 1. 登录后台。

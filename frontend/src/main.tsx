@@ -331,6 +331,7 @@ function ConfigItemPage() {
           <Input addonBefore="Alias" value={data.alias} readOnly />
           <Input addonBefore="环境" value={data.env} readOnly />
           <Input.TextArea value={data.access_key || "本次未创建新的 Access Key"} rows={3} readOnly />
+          <Button onClick={() => copyText(data.access_key)} disabled={!data.access_key}>复制访问密钥</Button>
           <Typography.Text>Python SDK 示例：</Typography.Text>
           <Input.TextArea value={data.sdk_example || ""} rows={8} readOnly />
         </Space>
@@ -338,13 +339,38 @@ function ConfigItemPage() {
     });
   }
 
+  function fallbackCopyText(text: string) {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const copied = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    if (!copied) {
+      throw new Error("复制失败");
+    }
+  }
+
   async function copyText(text?: string) {
     if (!text) {
       message.warning("这个历史密钥没有保存明文，请编辑配置项后重新生成");
       return;
     }
-    await navigator.clipboard.writeText(text);
-    message.success("已复制");
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        fallbackCopyText(text);
+      }
+      message.success("已复制访问密钥");
+    } catch {
+      message.error("复制失败，请手动选中访问密钥复制");
+    }
   }
 
   async function saveItem() {
