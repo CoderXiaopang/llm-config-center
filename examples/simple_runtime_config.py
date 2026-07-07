@@ -13,6 +13,66 @@ TaskType = Literal["chat", "responses", "text_to_image", "image_to_image", "imag
 INTERNAL_PARAM_KEYS = {"provider", "task_type"}
 SUPPORTED_PROVIDERS = {"yunwu", "volcengine", "bailian", "openai_compatible"}
 IMAGE_EXTRA_BODY_KEYS = {"image", "watermark", "sequential_image_generation"}
+CHAT_PARAM_KEYS = {
+    "frequency_penalty",
+    "logit_bias",
+    "logprobs",
+    "max_completion_tokens",
+    "max_tokens",
+    "metadata",
+    "n",
+    "parallel_tool_calls",
+    "presence_penalty",
+    "reasoning_effort",
+    "response_format",
+    "seed",
+    "service_tier",
+    "stop",
+    "store",
+    "stream",
+    "stream_options",
+    "temperature",
+    "timeout",
+    "tool_choice",
+    "tools",
+    "top_logprobs",
+    "top_p",
+    "user",
+}
+RESPONSES_PARAM_KEYS = {
+    "background",
+    "include",
+    "instructions",
+    "max_output_tokens",
+    "metadata",
+    "parallel_tool_calls",
+    "previous_response_id",
+    "reasoning",
+    "service_tier",
+    "store",
+    "stream",
+    "temperature",
+    "text",
+    "timeout",
+    "tool_choice",
+    "tools",
+    "top_logprobs",
+    "top_p",
+    "truncation",
+    "user",
+}
+IMAGE_PARAM_KEYS = {
+    "background",
+    "extra_body",
+    "moderation",
+    "n",
+    "quality",
+    "response_format",
+    "size",
+    "style",
+    "timeout",
+    "user",
+}
 
 
 def normalize_server_url(server_url: str) -> str:
@@ -119,8 +179,23 @@ class LLMConfigOpenAI:
         params.update(overrides)
         return params
 
-    def _image_params(self, images: str | list[str] | None, overrides: dict[str, Any]) -> dict[str, Any]:
+    def _filter_params(self, allowed: set[str], overrides: dict[str, Any]) -> dict[str, Any]:
         params = self._request_params(overrides)
+        return {key: value for key, value in params.items() if key in allowed}
+
+    def _chat_params(self, overrides: dict[str, Any]) -> dict[str, Any]:
+        return self._filter_params(CHAT_PARAM_KEYS, overrides)
+
+    def _responses_params(self, overrides: dict[str, Any]) -> dict[str, Any]:
+        params = self._request_params(overrides)
+        if "max_tokens" in params and "max_output_tokens" not in params:
+            params["max_output_tokens"] = params.pop("max_tokens")
+        else:
+            params.pop("max_tokens", None)
+        return {key: value for key, value in params.items() if key in RESPONSES_PARAM_KEYS}
+
+    def _image_params(self, images: str | list[str] | None, overrides: dict[str, Any]) -> dict[str, Any]:
+        params = self._filter_params(IMAGE_PARAM_KEYS | IMAGE_EXTRA_BODY_KEYS, overrides)
         extra_body = dict(params.pop("extra_body", {}) or {})
         for key in list(params.keys()):
             if key in IMAGE_EXTRA_BODY_KEYS:
@@ -138,7 +213,7 @@ class LLMConfigOpenAI:
         return self.client
 
     def create_chat_completion(self, messages: list[dict[str, Any]], **kwargs: Any):
-        request_params = self._request_params(kwargs)
+        request_params = self._chat_params(kwargs)
         return self.client.chat.completions.create(
             model=self.model,
             messages=messages,
@@ -146,7 +221,7 @@ class LLMConfigOpenAI:
         )
 
     def create_response(self, input: str | list[dict[str, Any]], **kwargs: Any):
-        request_params = self._request_params(kwargs)
+        request_params = self._responses_params(kwargs)
         return self.client.responses.create(
             model=self.model,
             input=input,
@@ -245,6 +320,9 @@ def main() -> None:
     if llm.task_type == "chat":
         response = llm.run(prompt="你好", stream=False)
         print("answer:", response.choices[0].message.content)
+    elif llm.task_type == "responses":
+        response = llm.run(prompt="你好", stream=False)
+        print("response:", response)
     else:
         response = llm.run(prompt="一只橘猫坐在白色桌面上，商业摄影风格")
         print("image_urls:", llm.image_urls(response))
