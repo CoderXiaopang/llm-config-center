@@ -272,6 +272,91 @@ def test_simple_config_item_creates_runtime_ready_config(client, admin_headers):
     assert runtime_after_edit.json()["api_key"] == "sk-updated-secret"
 
 
+def test_config_item_base_url_update_does_not_affect_other_items(client, admin_headers):
+    first = unwrap(
+        client.post(
+            "/api/v1/admin/config-items",
+            headers=admin_headers,
+            json={
+                "alias": "first-chat",
+                "env": "prod",
+                "provider_code": "shared-provider",
+                "provider_name": "共享供应商",
+                "base_url": "https://first.example.com/v1",
+                "api_key": "sk-first-secret",
+                "model_name": "model-a",
+                "model_type": "chat",
+                "default_params": {"temperature": 0.5},
+                "app_code": "first-client",
+                "app_name": "第一个客户端",
+                "access_key_name": "first-key",
+            },
+        )
+    )
+    second = unwrap(
+        client.post(
+            "/api/v1/admin/config-items",
+            headers=admin_headers,
+            json={
+                "alias": "second-chat",
+                "env": "prod",
+                "provider_code": "shared-provider",
+                "provider_name": "共享供应商",
+                "base_url": "https://second.example.com/v1",
+                "api_key": "sk-second-secret",
+                "model_name": "model-b",
+                "model_type": "chat",
+                "default_params": {"temperature": 0.6},
+                "app_code": "second-client",
+                "app_name": "第二个客户端",
+                "access_key_name": "second-key",
+            },
+        )
+    )
+    assert first["provider_code"] == "shared-provider"
+    assert second["provider_code"] == "shared-provider"
+
+    updated = unwrap(
+        client.put(
+            f"/api/v1/admin/config-items/{first['id']}",
+            headers=admin_headers,
+            json={
+                "alias": "first-chat",
+                "env": "prod",
+                "provider_code": "shared-provider",
+                "provider_name": "共享供应商",
+                "base_url": "https://first-updated.example.com/v1",
+                "model_name": "model-a",
+                "model_type": "chat",
+                "default_params": {"temperature": 0.7},
+                "app_code": "first-client",
+                "app_name": "第一个客户端",
+                "access_key_name": "first-key",
+                "create_access_key": False,
+            },
+        )
+    )
+    assert updated["base_url"] == "https://first-updated.example.com/v1"
+
+    items = unwrap(client.get("/api/v1/admin/config-items", headers=admin_headers))
+    by_alias = {item["alias"]: item for item in items}
+    assert by_alias["first-chat"]["base_url"] == "https://first-updated.example.com/v1"
+    assert by_alias["second-chat"]["base_url"] == "https://second.example.com/v1"
+
+    first_runtime = client.get(
+        "/api/v1/runtime/configs/first-chat?env=prod",
+        headers={"Authorization": f"Bearer {first['access_key']}"},
+    )
+    second_runtime = client.get(
+        "/api/v1/runtime/configs/second-chat?env=prod",
+        headers={"Authorization": f"Bearer {second['access_key']}"},
+    )
+    assert first_runtime.status_code == 200, first_runtime.text
+    assert second_runtime.status_code == 200, second_runtime.text
+    assert first_runtime.json()["base_url"] == "https://first-updated.example.com/v1"
+    assert second_runtime.json()["base_url"] == "https://second.example.com/v1"
+
+
 def test_runtime_reports_api_key_decrypt_failure(client, admin_headers):
     created = unwrap(
         client.post(

@@ -1,4 +1,6 @@
+import json
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
@@ -60,6 +62,25 @@ def _sdk_example(access_key: str, alias: str, env: str) -> str:
     )
 
 
+def _config_provider_description(display_code: str, alias: str, env: str) -> str:
+    return json.dumps(
+        {"managed_by": "config_item", "display_code": display_code, "alias": alias, "env": env},
+        ensure_ascii=False,
+    )
+
+
+def _provider_display_code(provider: Provider) -> str:
+    if provider.description:
+        try:
+            data = json.loads(provider.description)
+        except json.JSONDecodeError:
+            data = {}
+        display_code = data.get("display_code")
+        if isinstance(display_code, str) and display_code:
+            return display_code
+    return provider.code
+
+
 def _config_item_payload(
     alias: ModelAlias,
     model: LLMModel,
@@ -72,7 +93,7 @@ def _config_item_payload(
         id=alias.id,
         alias=alias.alias,
         env=alias.env,
-        provider_code=provider.code,
+        provider_code=_provider_display_code(provider),
         provider_name=provider.name,
         base_url=provider.base_url,
         model_name=model.model_name,
@@ -86,6 +107,27 @@ def _config_item_payload(
         sdk_example=_sdk_example(access_key, alias.alias, alias.env) if access_key else None,
         updated_at=alias.updated_at,
     ).model_dump(mode="json")
+
+
+def _create_config_provider(payload: ConfigItemIn) -> Provider:
+    return Provider(
+        code=f"cfg_{uuid4().hex[:16]}",
+        name=payload.provider_name,
+        protocol="openai_compatible",
+        base_url=payload.base_url,
+        status="enabled",
+        description=_config_provider_description(payload.provider_code, payload.alias, payload.env),
+    )
+
+
+def _create_config_model(provider: Provider, payload: ConfigItemIn) -> LLMModel:
+    return LLMModel(
+        provider_id=provider.id,
+        model_name=payload.model_name,
+        display_name=payload.model_name,
+        model_type=payload.model_type,
+        status="enabled",
+    )
 
 
 def _decrypt_optional(encrypted_value: str | None) -> str | None:
@@ -252,37 +294,13 @@ def list_config_items(db: Session = Depends(get_db), _: User = Depends(get_curre
 def create_config_item(payload: ConfigItemIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if not payload.api_key:
         raise HTTPException(status_code=422, detail="api_key required")
-    provider = db.scalar(select(Provider).where(Provider.code == payload.provider_code))
-    if provider is None:
-        provider = Provider(
-            code=payload.provider_code,
-            name=payload.provider_name,
-            protocol="openai_compatible",
-            base_url=payload.base_url,
-            status="enabled",
-            description=f"由配置项 {payload.alias} 自动创建",
-        )
-        db.add(provider)
-        db.flush()
-    else:
-        provider.name = payload.provider_name
-        provider.base_url = payload.base_url
-        provider.status = "enabled"
+    provider = _create_config_provider(payload)
+    db.add(provider)
+    db.flush()
 
-    model = db.scalar(select(LLMModel).where(LLMModel.provider_id == provider.id, LLMModel.model_name == payload.model_name))
-    if model is None:
-        model = LLMModel(
-            provider_id=provider.id,
-            model_name=payload.model_name,
-            display_name=payload.model_name,
-            model_type=payload.model_type,
-            status="enabled",
-        )
-        db.add(model)
-        db.flush()
-    else:
-        model.model_type = payload.model_type
-        model.status = "enabled"
+    model = _create_config_model(provider, payload)
+    db.add(model)
+    db.flush()
 
     provider_key = ProviderApiKey(
         provider_id=provider.id,
@@ -371,37 +389,13 @@ def update_config_item(alias_id: int, payload: ConfigItemIn, db: Session = Depen
     if alias is None:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
 
-    provider = db.scalar(select(Provider).where(Provider.code == payload.provider_code))
-    if provider is None:
-        provider = Provider(
-            code=payload.provider_code,
-            name=payload.provider_name,
-            protocol="openai_compatible",
-            base_url=payload.base_url,
-            status="enabled",
-            description=f"由配置项 {payload.alias} 自动创建",
-        )
-        db.add(provider)
-        db.flush()
-    else:
-        provider.name = payload.provider_name
-        provider.base_url = payload.base_url
-        provider.status = "enabled"
+    provider = _create_config_provider(payload)
+    db.add(provider)
+    db.flush()
 
-    model = db.scalar(select(LLMModel).where(LLMModel.provider_id == provider.id, LLMModel.model_name == payload.model_name))
-    if model is None:
-        model = LLMModel(
-            provider_id=provider.id,
-            model_name=payload.model_name,
-            display_name=payload.model_name,
-            model_type=payload.model_type,
-            status="enabled",
-        )
-        db.add(model)
-        db.flush()
-    else:
-        model.model_type = payload.model_type
-        model.status = "enabled"
+    model = _create_config_model(provider, payload)
+    db.add(model)
+    db.flush()
 
     provider_key = db.get(ProviderApiKey, alias.provider_api_key_id)
     if provider_key is None or payload.api_key:
