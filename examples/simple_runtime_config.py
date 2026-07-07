@@ -11,7 +11,7 @@ from typing import Any
 def get_llm_config(
     alias: str,
     access_key: str,
-    server_url: str = "http://106.75.1.139:8001",
+    server_url: str = "http://localhost:8001",
     env: str = "prod",
     timeout: float = 10.0,
 ) -> dict[str, Any]:
@@ -30,7 +30,7 @@ def main() -> None:
     access_key = os.environ["LLM_CONFIG_ACCESS_KEY"]
     alias = os.getenv("LLM_CONFIG_ALIAS", "seed5")
     env = os.getenv("LLM_CONFIG_ENV", "prod")
-    server_url = os.getenv("LLM_CONFIG_SERVER_URL", "http://106.75.1.139:8001")
+    server_url = os.getenv("LLM_CONFIG_SERVER_URL", "http://localhost:8001")
 
     config = get_llm_config(alias=alias, access_key=access_key, server_url=server_url, env=env)
     print("base_url:", config["base_url"])

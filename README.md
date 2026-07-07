@@ -99,7 +99,7 @@ curl -X GET "http://localhost:8001/api/v1/runtime/configs/seed5?env=prod" \
 
 ## Python 函数接入
 
-业务项目不需要安装 SDK，直接复制 [simple_runtime_config.py](/Users/quxiaopang/世纪开元/代码/LLM-Config 统一配置/examples/simple_runtime_config.py) 里的 `get_llm_config()` 函数即可。
+业务项目不需要安装 SDK，直接复制 [examples/simple_runtime_config.py](examples/simple_runtime_config.py) 里的 `get_llm_config()` 函数即可。
 
 最小用法：
 
@@ -109,7 +109,7 @@ from simple_runtime_config import get_llm_config
 config = get_llm_config(
     alias="seed5",
     access_key="<access_key>",
-    server_url="http://106.75.1.139:8001",
+    server_url="http://localhost:8001",
 )
 
 print(config["base_url"])
@@ -121,7 +121,7 @@ print(config["model"])
 ```python
 from openai import OpenAI
 
-config = get_llm_config("seed5", "<access_key>", "http://106.75.1.139:8001")
+config = get_llm_config("seed5", "<access_key>", "http://localhost:8001")
 client = OpenAI(base_url=config["base_url"], api_key=config["api_key"])
 model = config["model"]
 ```
@@ -129,7 +129,7 @@ model = config["model"]
 直接运行测试函数：
 
 ```bash
-export LLM_CONFIG_SERVER_URL=http://106.75.1.139:8001
+export LLM_CONFIG_SERVER_URL=http://localhost:8001
 export LLM_CONFIG_ACCESS_KEY='<access_key>'
 export LLM_CONFIG_ALIAS=seed5
 python examples/simple_runtime_config.py
