@@ -23,8 +23,22 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 2. 启动服务：
 
+Docker 方式：
+
 ```bash
 docker compose up -d
+```
+
+非 Docker 方式：
+
+```bash
+cd backend
+export PYTHONPATH=$PWD
+uvicorn app.main:app --host 0.0.0.0 --port 8001
+
+cd ../frontend
+npm install
+npm run dev
 ```
 
 3. 打开后台：
@@ -63,7 +77,7 @@ INIT_ADMIN_PASSWORD=admin123456
 Runtime API 调用：
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/runtime/configs/seed5?env=prod" \
+curl -X GET "http://localhost:8001/api/v1/runtime/configs/seed5?env=prod" \
   -H "Authorization: Bearer <access_key>"
 ```
 
