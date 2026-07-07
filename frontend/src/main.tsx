@@ -63,6 +63,8 @@ function AppShell() {
   const savedPage = localStorage.getItem("current_page") || "config-items";
   const [page, setPage] = useState(menuItems.some((item) => item.key === savedPage) ? savedPage : "config-items");
   const user = localStorage.getItem("admin_user") || "管理员";
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordForm] = Form.useForm();
 
   useEffect(() => {
     if (!localStorage.getItem("admin_token")) {
@@ -79,6 +81,29 @@ function AppShell() {
     localStorage.removeItem("admin_token");
     localStorage.removeItem("admin_user");
     location.href = "/login";
+  }
+
+  async function changePassword() {
+    const values = await passwordForm.validateFields();
+    if (values.new_password !== values.confirm_password) {
+      message.error("两次输入的新密码不一致");
+      return;
+    }
+    try {
+      await api.post("/auth/password", {
+        old_password: values.old_password,
+        new_password: values.new_password
+      });
+      message.success("密码已修改，请重新登录");
+      setPasswordOpen(false);
+      passwordForm.resetFields();
+      localStorage.removeItem("admin_token");
+      localStorage.removeItem("admin_user");
+      location.href = "/login";
+    } catch (error: any) {
+      const detail = error.response?.data?.detail;
+      message.error(detail === "OLD_PASSWORD_INVALID" ? "旧密码不正确" : "修改失败");
+    }
   }
 
   return (
@@ -101,6 +126,7 @@ function AppShell() {
           </div>
           <Space>
             <Tag color="cyan">{user}</Tag>
+            <Button onClick={() => setPasswordOpen(true)}>修改密码</Button>
             <Button icon={<LogOut size={16} />} onClick={logout}>
               退出登录
             </Button>
@@ -108,6 +134,19 @@ function AppShell() {
         </Header>
         <Content className="content">{renderPage(page)}</Content>
       </Layout>
+      <Modal title="修改密码" open={passwordOpen} onOk={changePassword} onCancel={() => setPasswordOpen(false)} okText="保存" cancelText="取消">
+        <Form form={passwordForm} layout="vertical">
+          <Form.Item label="旧密码" name="old_password" rules={[{ required: true, message: "请输入旧密码" }]}>
+            <Input.Password />
+          </Form.Item>
+          <Form.Item label="新密码" name="new_password" rules={[{ required: true, message: "请输入新密码" }]}>
+            <Input.Password />
+          </Form.Item>
+          <Form.Item label="确认新密码" name="confirm_password" rules={[{ required: true, message: "请再次输入新密码" }]}>
+            <Input.Password />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Layout>
   );
 }
@@ -130,7 +169,9 @@ function UserPage() {
   const [rows, setRows] = useState<Entity[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Entity | null>(null);
+  const [resetting, setResetting] = useState<Entity | null>(null);
   const [form] = Form.useForm();
+  const [resetForm] = Form.useForm();
 
   async function load() {
     setRows(pickData<Entity[]>(await api.get("/users")));
@@ -152,8 +193,7 @@ function UserPage() {
       username: row.username,
       display_name: row.display_name,
       role: row.role,
-      status: row.status,
-      password: undefined
+      status: row.status
     });
     setOpen(true);
   }
@@ -168,9 +208,6 @@ function UserPage() {
           role: values.role,
           status: values.status
         });
-        if (values.password) {
-          await api.post(`/users/${editing.id}/password`, { password: values.password });
-        }
         message.success("用户已更新");
       } else {
         await api.post("/users", values);
@@ -193,6 +230,15 @@ function UserPage() {
     load();
   }
 
+  async function resetPassword() {
+    if (!resetting) return;
+    const values = await resetForm.validateFields();
+    await api.post(`/users/${resetting.id}/password`, { password: values.password });
+    message.success("密码已重置");
+    setResetting(null);
+    resetForm.resetFields();
+  }
+
   return (
     <Card title="用户管理" extra={<Button type="primary" onClick={startCreate}>新增用户</Button>}>
       <Table
@@ -208,10 +254,11 @@ function UserPage() {
           { title: "最近登录", dataIndex: "last_login_at" },
           {
             title: "操作",
-            width: 170,
+            width: 260,
             render: (_, row) => (
               <Space>
                 <Button size="small" onClick={() => startEdit(row)}>编辑</Button>
+                <Button size="small" onClick={() => setResetting(row)}>重置密码</Button>
                 <Popconfirm title={`确认${row.status === "enabled" ? "禁用" : "启用"}该用户？`} okText="确认" cancelText="取消" onConfirm={() => toggleUser(row)}>
                   <Button size="small" danger={row.status === "enabled"}>{row.status === "enabled" ? "禁用" : "启用"}</Button>
                 </Popconfirm>
@@ -241,8 +288,17 @@ function UserPage() {
               <Select options={[{ label: "启用", value: "enabled" }, { label: "禁用", value: "disabled" }]} />
             </Form.Item>
           </div>
-          <Form.Item label={editing ? "重置密码（不填则不修改）" : "密码"} name="password" rules={[{ required: !editing, message: "请输入密码" }]}>
-            <Input.Password placeholder={editing ? "不填则保留原密码" : "请输入初始密码"} />
+          {!editing && (
+            <Form.Item label="密码" name="password" rules={[{ required: true, message: "请输入密码" }]}>
+              <Input.Password placeholder="请输入初始密码" />
+            </Form.Item>
+          )}
+        </Form>
+      </Modal>
+      <Modal title={`重置密码：${resetting?.username || ""}`} open={Boolean(resetting)} onOk={resetPassword} onCancel={() => setResetting(null)} okText="保存" cancelText="取消">
+        <Form form={resetForm} layout="vertical">
+          <Form.Item label="新密码" name="password" rules={[{ required: true, message: "请输入新密码" }]}>
+            <Input.Password placeholder="请输入新密码" />
           </Form.Item>
         </Form>
       </Modal>

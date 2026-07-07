@@ -56,3 +56,26 @@ def test_user_management_create_update_disable_login_flow(client, admin_headers)
     disabled_login = client.post("/api/v1/admin/auth/login", json={"username": "operator1", "password": "new-pass-456"})
     assert disabled_login.status_code == 401
 
+
+def test_current_user_can_change_own_password(client, admin_headers):
+    bad = client.post(
+        "/api/v1/admin/auth/password",
+        headers=admin_headers,
+        json={"old_password": "wrong", "new_password": "admin-new-pass"},
+    )
+    assert bad.status_code == 400
+
+    changed = unwrap(
+        client.post(
+            "/api/v1/admin/auth/password",
+            headers=admin_headers,
+            json={"old_password": "admin123456", "new_password": "admin-new-pass"},
+        )
+    )
+    assert changed["id"] == 1
+
+    old_login = client.post("/api/v1/admin/auth/login", json={"username": "admin", "password": "admin123456"})
+    assert old_login.status_code == 401
+
+    new_login = client.post("/api/v1/admin/auth/login", json={"username": "admin", "password": "admin-new-pass"})
+    assert new_login.status_code == 200

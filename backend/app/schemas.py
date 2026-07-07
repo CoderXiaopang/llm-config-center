@@ -32,6 +32,11 @@ class UserPasswordIn(BaseModel):
     password: str
 
 
+class ChangeOwnPasswordIn(BaseModel):
+    old_password: str
+    new_password: str
+
+
 class UserOut(ORMModel):
     id: int
     username: str

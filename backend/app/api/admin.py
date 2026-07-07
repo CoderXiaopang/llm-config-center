@@ -20,6 +20,7 @@ from app.schemas import (
     AliasOut,
     AppIn,
     AppOut,
+    ChangeOwnPasswordIn,
     ConfigItemIn,
     ConfigItemOut,
     LoginRequest,
@@ -137,6 +138,17 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 @router.get("/auth/me")
 def me(current_user: User = Depends(get_current_user)):
     return ok({"id": current_user.id, "username": current_user.username, "display_name": current_user.display_name, "role": current_user.role})
+
+
+@router.post("/auth/password")
+def change_own_password(payload: ChangeOwnPasswordIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    row = db.get(User, current_user.id)
+    if row is None or not verify_password(payload.old_password, row.password_hash):
+        raise HTTPException(status_code=400, detail="OLD_PASSWORD_INVALID")
+    row.password_hash = hash_password(payload.new_password)
+    write_audit(db, action="change_own_password", resource_type="sys_user", resource_id=row.id, user_id=row.id, after_data={"password": payload.new_password})
+    db.commit()
+    return ok({"id": row.id})
 
 
 @router.get("/users")
